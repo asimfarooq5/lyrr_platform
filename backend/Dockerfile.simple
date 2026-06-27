@@ -1,0 +1,31 @@
+# LYRR Platform Backend - Simple Dockerfile (No heavy dependencies)
+# 
+# This is a lightweight Dockerfile for local development
+# It only includes core dependencies, not AI/ML libraries
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt requirements-dev.txt ./
+
+# Install Python dependencies (core + dev)
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+
+# Copy application code
+COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -1,0 +1,99 @@
+# LYRR Platform - Local Development Stack
+# 
+# Lightweight setup for local development
+# Usage: docker-compose -f docker-compose.local.yml up -d
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: lyrr-db-local
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=lyrr
+    volumes:
+      - postgres-data-local:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - lyrr-network-local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (optional - for caching)
+  redis:
+    image: redis:7-alpine
+    container_name: lyrr-redis-local
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - lyrr-network-local
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO for local S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: lyrr-minio-local
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data-local:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - lyrr-network-local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API (Optional - for testing Docker build)
+  # Uncomment to run backend in Docker instead of locally
+  # api:
+  #   build:
+  #     context: ../backend
+  #     dockerfile: Dockerfile.simple
+  #   container_name: lyrr-api-local
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/lyrr
+  #     - REDIS_URL=redis://redis:6379/0
+  #     - SECRET_KEY=local-dev-secret-key-change-in-production
+  #     - DEBUG=true
+  #     - ENVIRONMENT=development
+  #   volumes:
+  #     - ../backend/app:/app/app:ro
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - lyrr-network-local
+
+volumes:
+  postgres-data-local:
+  minio-data-local:
+
+networks:
+  lyrr-network-local:
+    driver: bridge
