@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LYRR Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            min-height: 100vh;
+            background: #f8f9fa;
+        }
+        .sidebar {
+            width: 260px;
+            background: #1a1a2e;
+            color: white;
+            min-height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+        }
+        .sidebar-header {
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-logo {
+            width: 40px;
+            height: 40px;
+            background: #6B4EFF;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .sidebar-nav { padding: 16px 0; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 24px;
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            transition: all 0.2s;
+            font-size: 15px;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
+        .nav-item.active { background: rgba(107,78,255,0.15); color: #6B4EFF; font-weight: 600; }
+        .main {
+            margin-left: 260px;
+            flex: 1;
+            padding: 24px;
+        }
+        .header {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .header h2 { color: #1a1a2e; }
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .logout-btn {
+            padding: 8px 16px;
+            background: #fee2e2;
+            color: #ef4444;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+        }
+        .logout-btn:hover { background: #fecaca; }
+        .stats { display: flex; gap: 24px; margin-bottom: 24px; }
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            flex: 1;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .stat-card .icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+        .stat-card .value { font-size: 32px; font-weight: bold; color: #1a1a2e; }
+        .stat-card .label { color: #666; margin-top: 4px; font-size: 14px; }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th { text-align: left; padding: 12px 16px; color: #666; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #f0f0f0; }
+        td { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-success { background: #d1fae5; color: #059669; }
+        .badge-warning { background: #fef3c7; color: #d97706; }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #6B4EFF; color: white; }
+        .btn-primary:hover { background: #5A3FE8; }
+        .btn-danger { background: #fee2e2; color: #ef4444; }
+        .btn-danger:hover { background: #fecaca; }
+        .btn-sm { padding: 6px 12px; font-size: 13px; }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        .modal h3 { margin-bottom: 24px; color: #1a1a2e; }
+        .modal .form-group { margin-bottom: 16px; }
+        .modal label { display: block; margin-bottom: 6px; color: #666; font-size: 14px; }
+        .modal input, .modal textarea, .modal select {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .modal input:focus, .modal textarea:focus { outline: none; border-color: #6B4EFF; }
+        .modal textarea { resize: vertical; min-height: 80px; }
+        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+        .modal-actions .btn { min-width: 100px; }
+        .success-msg {
+            background: #d1fae5;
+            color: #059669;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">L</div>
+            <span style="font-size: 18px; font-weight: 600;">LYRR Admin</span>
+        </div>
+        <div class="sidebar-nav">
+            <a href="/admin/dashboard" class="nav-item {% if page == 'dashboard' %}active{% endif %}">📊 Dashboard</a>
+            <a href="/admin/books" class="nav-item {% if page == 'books' %}active{% endif %}">📚 Books</a>
+            <a href="/admin/users" class="nav-item {% if page == 'users' %}active{% endif %}">👥 Users</a>
+        </div>
+    </div>
+    <div class="main">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
