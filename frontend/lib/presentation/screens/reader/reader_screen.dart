@@ -603,8 +603,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           _wordKeys.putIfAbsent(word.id, () => GlobalKey());
 
           return WordSpan(
-            key: _wordKeys[word.id],
-            word: word,
+            wordData: word,
             isHighlighted: isCurrentWord,
             hasBookmark: hasBookmark,
             hasNote: hasNote,

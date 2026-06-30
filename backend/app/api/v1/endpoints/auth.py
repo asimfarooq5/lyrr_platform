@@ -117,13 +117,12 @@ async def register(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
-    request: Request,
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    login_data: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Login with email and password"""
+    """Login with email and password (JSON body)"""
     # Find user
-    result = await db.execute(select(User).where(User.email == form_data.username))
+    result = await db.execute(select(User).where(User.email == login_data.username))
     user = result.scalar_one_or_none()
     
     if not user or not user.hashed_password:
@@ -133,7 +132,7 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not verify_password(form_data.password, user.hashed_password):
+    if not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -147,6 +146,39 @@ async def login(
         )
     
     # Create tokens
+    access_token = create_access_token(data={"sub": user.id})
+    refresh_token = create_refresh_token(data={"sub": user.id})
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
+
+
+@router.post("/login/form", response_model=TokenResponse)
+async def login_form(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    """Login with email and password (form data - for OAuth2 compliance)"""
+    result = await db.execute(select(User).where(User.email == form_data.username))
+    user = result.scalar_one_or_none()
+    
+    if not user or not user.hashed_password or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated"
+        )
+    
     access_token = create_access_token(data={"sub": user.id})
     refresh_token = create_refresh_token(data={"sub": user.id})
     

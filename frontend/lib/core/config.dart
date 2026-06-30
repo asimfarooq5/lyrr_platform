@@ -6,7 +6,7 @@ class AppConfig {
   // API Configuration
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:8000/api/v1',
+    defaultValue: 'http://192.168.0.228:8000/api/v1',
   );
   
   static const String apiVersion = 'v1';

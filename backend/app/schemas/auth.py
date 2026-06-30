@@ -35,8 +35,9 @@ class UserResponse(UserBase):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str
     password: str
+    grant_type: Optional[str] = "password"
     device_info: Optional[DeviceInfo] = None
 
 

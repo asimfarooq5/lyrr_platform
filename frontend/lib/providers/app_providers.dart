@@ -16,15 +16,15 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
 });
 
 /// Auth service provider
-final authServiceProvider = Provider<AuthService>((ref) {
+final authServiceProvider = ChangeNotifierProvider<AuthService>((ref) {
   final prefs = ref.watch(sharedPreferencesProvider);
   return AuthService(prefs: prefs);
 });
 
 /// Auth state provider
-final authStateProvider = StreamProvider<AuthState>((ref) {
+final authStateProvider = Provider<AuthState>((ref) {
   final authService = ref.watch(authServiceProvider);
-  return authService.syncStream.map((_) => authService.state);
+  return authService.state;
 });
 
 /// Current user provider

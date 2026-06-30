@@ -2,7 +2,8 @@
 # 
 # Quick commands for development
 
-.PHONY: help setup start stop test lint format clean
+SHELL := /bin/bash
+.PHONY: help setup setup-infra start stop restart backend migrate shell seed build-apk build-admin build-all test test-backend lint format typecheck flutter admin clean clean-all
 
 # Default target
 help:
@@ -106,3 +107,24 @@ clean:
 clean-all: clean
 	cd backend && rm -rf venv __pycache__ .pytest_cache
 	@echo "✓ Everything cleaned"
+
+# Build
+build-apk:
+	@echo "📱 Building Android APK..."
+	cd frontend && flutter build apk --release
+	cp frontend/build/app/outputs/flutter-apk/app-release.apk dist/lyrr.apk
+	@echo "✓ APK saved to dist/lyrr.apk"
+
+build-admin:
+	@echo "🌐 Building Admin Portal..."
+	cd admin && flutter build web --release
+	cp -r admin/build/web/* dist/admin/
+	@echo "✓ Admin portal built to dist/admin/"
+
+build-all: build-apk build-admin
+	@echo "📦 All builds complete"
+
+# Seed database
+seed:
+	cd backend && source venv/bin/activate && python seed_data.py
+	@echo "✓ Database seeded"

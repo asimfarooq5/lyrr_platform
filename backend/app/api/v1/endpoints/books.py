@@ -5,7 +5,7 @@ Book endpoints
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -246,3 +246,39 @@ async def download_book(
     await db.commit()
     
     return {"message": "Download recorded", "book_id": book_id}
+
+
+@router.put("/{book_id}")
+async def update_book(
+    book_id: str,
+    book_data: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a book (admin use)"""
+    result = await db.execute(select(Book).where(Book.id == book_id))
+    book = result.scalar_one_or_none()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    for key, value in book_data.items():
+        if hasattr(book, key):
+            setattr(book, key, value)
+    
+    await db.commit()
+    return {"message": "Book updated", "book_id": book_id}
+
+
+@router.delete("/{book_id}")
+async def delete_book(
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a book (admin use)"""
+    result = await db.execute(select(Book).where(Book.id == book_id))
+    book = result.scalar_one_or_none()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    await db.delete(book)
+    await db.commit()
+    return {"message": "Book deleted"}

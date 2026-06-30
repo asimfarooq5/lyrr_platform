@@ -207,9 +207,10 @@ class ApiClient {
       final parsedData = parser != null ? parser(data) : data as T;
       return ApiResponse.success(parsedData, statusCode: statusCode);
     } else if (statusCode == 401) {
-      // Unauthorized - token expired
-      _authService.clearTokens();
-      throw ApiException('Session expired. Please login again.', statusCode: 401);
+      // Get actual error from API
+      final error = _parseError(response.body);
+      final msg = error['detail'] ?? error['message'] ?? 'Incorrect email or password';
+      throw ApiException(msg, statusCode: 401);
     } else if (statusCode >= 400 && statusCode < 500) {
       // Client error
       final error = _parseError(response.body);

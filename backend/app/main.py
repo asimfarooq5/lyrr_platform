@@ -22,6 +22,7 @@ except ImportError:
     async def close_redis():
         pass
 from app.api.v1.router import api_router
+from app.api.v1.endpoints.admin_portal import router as admin_portal_router
 from app.core.logging import setup_logging
 import logging
 
@@ -69,6 +70,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
+
+# Admin portal routes (Jinja2 templates)
+app.include_router(admin_portal_router, prefix="/admin")
 
 
 @app.get("/health")

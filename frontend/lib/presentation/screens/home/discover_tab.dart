@@ -40,7 +40,7 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       final repo = ref.read(booksRepositoryProvider);
       
       // Load featured books
-      final featuredData = await repo.getBooks(featuredOnly: true);
+      final featuredData = await repo.getBooks();
       _featuredBooks = featuredData.map((b) => BookModel.fromJson(b)).toList();
 
       // Load all books

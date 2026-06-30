@@ -70,7 +70,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'An error occurred. Please try again.';
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
         _isLoading = false;
       });
     }

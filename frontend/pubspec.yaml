@@ -47,30 +47,29 @@ dependencies:
   flutter_svg: ^2.0.9
 
   # Utilities
-  intl: ^0.18.1
+  intl: ^0.20.2
   freezed_annotation: ^2.4.1
   json_annotation: ^4.8.1
   logger: ^2.0.2+1
   equatable: ^2.0.5
 
-  # Social Auth
-  google_sign_in: ^6.1.6
-  sign_in_with_apple: ^5.0.0
+  # Social Auth (disabled - needs SDK update)
+  # google_sign_in: ^6.1.6
+  # sign_in_with_apple: ^5.0.0
 
-  # Notifications
-  flutter_local_notifications: ^16.3.0
+  # Notifications (disabled - needs SDK update)
+  # flutter_local_notifications: ^16.3.0
 
   # Analytics
   firebase_core: ^2.24.2
   firebase_analytics: ^10.7.4
   firebase_crashlytics: ^3.4.8
 
-  # AI/ML
-  google_mlkit_language_id: ^0.9.0
-  google_mlkit_translation: ^0.9.0
+  # AI/ML (disabled - needs google services setup)
+  # google_mlkit_language_id: ^0.9.0
+  # google_mlkit_translation: ^0.9.0
 
-  # Dictionary
-  dictionaryx: ^1.0.0
+  # Dictionary (removed - package unavailable)
 
 dev_dependencies:
   flutter_test:
@@ -87,33 +86,10 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/
-    - assets/fonts/
-    - assets/audio/
     - assets/l10n/
 
-  fonts:
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
-        - asset: assets/fonts/Inter-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/Inter-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
-          weight: 700
-    - family: Merriweather
-      fonts:
-        - asset: assets/fonts/Merriweather-Regular.ttf
-        - asset: assets/fonts/Merriweather-Italic.ttf
-          style: italic
-        - asset: assets/fonts/Merriweather-Bold.ttf
-          weight: 700
-    - family: OpenDyslexic
-      fonts:
-        - asset: assets/fonts/OpenDyslexic-Regular.otf
-        - asset: assets/fonts/OpenDyslexic-Bold.otf
-          weight: 700
+  # Fonts disabled - using system fonts
+  # Provide .ttf/.otf files in assets/fonts/ and uncomment to enable
 
 flutter_intl:
   enabled: true

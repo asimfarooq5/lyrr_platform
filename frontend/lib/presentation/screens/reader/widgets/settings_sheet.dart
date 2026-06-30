@@ -37,12 +37,12 @@ class SettingsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final themeData = Theme.of(context);
 
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: themeData.colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SafeArea(
@@ -66,7 +66,7 @@ class SettingsSheet extends StatelessWidget {
             // Title
             Text(
               'Reader Settings',
-              style: theme.textTheme.displaySmall,
+              style: themeData.textTheme.displaySmall,
             ),
             const SizedBox(height: 24),
             
@@ -138,7 +138,7 @@ class SettingsSheet extends StatelessWidget {
                     icon: Icon(Icons.brightness_auto),
                   ),
                 ],
-                selected: {theme},
+                selected: <String>{theme},
                 onSelectionChanged: (selected) {
                   onThemeChanged(selected.first);
                 },
