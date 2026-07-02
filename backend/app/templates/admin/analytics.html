@@ -1,0 +1,40 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="header">
+    <h2>Analytics</h2>
+    <a href="/admin/analytics/export" class="btn btn-primary">📥 Export CSV</a>
+</div>
+<div class="stats">
+    <div class="stat-card">
+        <div class="icon" style="background:rgba(107,78,255,0.1);color:#6B4EFF;">👥</div>
+        <div class="value">{{ stats.users }}</div>
+        <div class="label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="icon" style="background:rgba(0,217,192,0.1);color:#00D9C0;">📚</div>
+        <div class="value">{{ stats.books }}</div>
+        <div class="label">Total Books</div>
+    </div>
+    <div class="stat-card">
+        <div class="icon" style="background:rgba(255,107,107,0.1);color:#FF6B6B;">💰</div>
+        <div class="value">{{ stats.revenue | format_number }} FCFA</div>
+        <div class="label">Total Revenue</div>
+    </div>
+    <div class="stat-card">
+        <div class="icon" style="background:rgba(255,215,0,0.1);color:#FFD700;">🛒</div>
+        <div class="value">{{ stats.payments }}</div>
+        <div class="label">Completed Payments</div>
+    </div>
+</div>
+<div class="card">
+    <h3 style="margin-bottom:16px;">Most Popular Books</h3>
+    <table>
+        <thead><tr><th>#</th><th>Title</th><th>Author</th></tr></thead>
+        <tbody>
+            {% for book in stats.popular %}
+            <tr><td>{{ loop.index }}</td><td>{{ book.title }}</td><td>{{ book.author }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

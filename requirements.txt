@@ -1,0 +1,215 @@
+FUNCTIONAL REQUIREMENTS SPECIFICATION (FRS)
+LYRR: AUDIO AND TEXT READING APPLICATION
+1. PROJECT OVERVIEW
+
+LYRR is a mobile, desktop, and web-based application that allows users to access, read, and listen to
+digital books in text and/or audio format.
+The application shall provide synchronized reading functionality between displayed text and
+corresponding audio narration.
+The primary objective is to offer a secure digital content distribution platform with multiple free and paid
+access models.
+2. TARGET PLATFORMS
+
+The application shall be available on:
+• Android
+• iOS
+• Windows Desktop
+• Web-based Administration Portal
+3. USER ROLES
+
+The following user profiles shall be supported:
+3.1 Reader
+
+Functions:
+• Account registration
+• User login
+• Browse the digital library
+• Read books
+• Listen to audio books
+• Manage subscriptions
+3.2 Administrator
+
+Functions:
+• User management
+• Book management
+• Subscription management
+• Statistics and reporting
+• Audio content management
+4. AUTHENTICATION MODULE
+
+The system shall provide:
+• Email registration
+• Phone number registration
+• Secure login
+• Password reset functionality
+• Email or phone verification
+5. DIGITAL LIBRARY MODULE
+
+The reader shall be able to:
+• Search for books
+• Browse categories
+• Browse authors
+
+•
+•
+•
+
+View book covers
+View book descriptions
+View access conditions
+Each book shall contain:
+• Unique identifier
+• Title
+• Author
+• Cover image
+• Description
+• Text content
+• Audio content
+6. TEXT READING MODULE
+
+Functions:
+• Text display
+• Page navigation
+• Adjustable font size
+• Resume reading from last position
+• Bookmark management
+7. AUDIO PLAYBACK MODULE
+
+Functions:
+• Play
+• Pause
+• Resume
+• Fast forward
+• Rewind
+Settings:
+• Volume control
+• Playback speed
+• Voice tone adjustment
+The user shall be able to resume listening from the last playback position.
+8. TEXT-TO-AUDIO SYNCHRONIZATION MODULE
+
+Functions:
+• Simultaneous display of text and audio
+• Progressive text highlighting during playback
+• Sentence-by-sentence synchronization
+• Automatic position saving
+9. OFFLINE MODE
+
+Users shall be able to:
+• Continue listening to previously authorized books
+• Continue reading previously authorized books
+Content shall remain accessible only through the application.
+10. PAYMENT MODULE
+
+The system shall support:
+• Pay-per-book access
+• Monthly subscription
+• Annual subscription
+
+Payment methods:
+• Credit/Debit Card
+• Orange Money
+• MTN Mobile Money
+The system shall maintain a complete payment history.
+11. ACCESS MANAGEMENT
+
+The system shall support:
+
+Free Access
+•
+•
+
+Book preview
+Demo content
+
+Paid Access
+•
+•
+
+Individual purchase
+Subscription plans
+Access rights shall be configurable through the administration portal.
+12. ADMINISTRATION PORTAL
+
+The administrator shall be able to:
+
+User Management
+•
+•
+•
+•
+
+Create users
+Edit users
+Suspend users
+Delete users
+
+Book Management
+•
+•
+•
+
+Add books
+Edit books
+Delete books
+
+Audio Management
+•
+•
+
+Upload audio files
+Associate audio files with books
+
+Subscription Management
+•
+•
+•
+
+Create subscription plans
+Modify subscription plans
+Suspend subscription plans
+
+13. REPORTING AND ANALYTICS
+
+The system shall provide:
+• Number of users
+• Number of reading sessions
+• Number of listening sessions
+• Revenue by period
+• Most popular books
+Excel export capability is required.
+14. SECURITY REQUIREMENTS
+
+Content shall only be accessible through the application.
+Books and audio files shall not be directly downloadable by users.
+The system shall provide:
+• Secure authentication
+• Session management
+
+•
+
+Content protection mechanisms
+
+15. DELIVERABLES
+
+The contractor shall provide:
+• Complete source code
+• Technical documentation
+• Installation documentation
+• Database schema and scripts
+• Administrator user guide
+• End-user guide
+The Git repository shall be owned by the client.
+All cloud infrastructure accounts shall be owned by the client.
+All intellectual property rights related to the developed software shall be transferred to the client upon
+final payment.
+16. ESTIMATION REQUIRED
+
+The contractor shall provide:
+• Project duration estimate
+• Project cost estimate
+• Development phases and milestones
+• Proposed technologies
+• Post-deployment maintenance proposal
+
+
