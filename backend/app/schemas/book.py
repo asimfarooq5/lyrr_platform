@@ -36,14 +36,23 @@ class ParagraphSchema(BaseModel):
     words: List[WordSchema]
 
 
+class SyncWordSchema(BaseModel):
+    id: str
+    start: float
+    end: float
+
+
 class ChapterSchema(BaseModel):
     id: str
     title: str
     order_index: int
-    paragraphs: List[ParagraphSchema]
+    paragraphs: List[ParagraphSchema] = Field(default=[], validation_alias="content")
+    sync_data: Optional[List[SyncWordSchema]] = None
+    
+    model_config = {"from_attributes": True}
 
 
-class SyncWordSchema(BaseModel):
+class BookMediaSchema(BaseModel):
     id: str
     start: float
     end: float
@@ -82,6 +91,7 @@ class BookUpdate(BaseModel):
 class BookResponse(BookBase):
     id: str
     cover_url: Optional[str] = None
+    book_type: str = "fiction"
     duration: Optional[int] = None
     word_count: Optional[int] = None
     status: BookStatus

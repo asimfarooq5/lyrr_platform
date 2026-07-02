@@ -23,6 +23,7 @@ except ImportError:
         pass
 from app.api.v1.router import api_router
 from app.api.v1.endpoints.admin_portal import router as admin_portal_router
+from app.api.v1.endpoints.media_stream import router as media_stream_router
 from app.core.logging import setup_logging
 import logging
 
@@ -73,6 +74,9 @@ app.include_router(api_router, prefix="/api/v1")
 
 # Admin portal routes (Jinja2 templates)
 app.include_router(admin_portal_router, prefix="/admin")
+
+# Media streaming (audio + cover images)
+app.include_router(media_stream_router, prefix="/media")
 
 
 @app.get("/health")

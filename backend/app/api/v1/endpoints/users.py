@@ -55,12 +55,31 @@ async def get_library(
             title=book.title,
             author=book.author,
             cover_url=book.cover_url,
+            book_type=book.book_type or "fiction",
+            language=book.language.value if hasattr(book.language, 'value') else str(book.language),
             progress_percent=progress.progress_percent if progress else 0.0,
             last_read_at=progress.last_read_at if progress else None,
             is_downloaded=user_book.is_downloaded
         ))
     
-    return {"items": items, "total": len(items)}
+    # Group by type, author, language
+    from collections import defaultdict
+    by_type = defaultdict(list)
+    by_author = defaultdict(list)
+    by_language = defaultdict(list)
+    
+    for item in items:
+        by_type[item.book_type].append(item)
+        by_author[item.author].append(item)
+        by_language[item.language].append(item)
+    
+    return {
+        "items": items,
+        "by_type": [{"group": k, "books": v} for k, v in by_type.items()],
+        "by_author": [{"group": k, "books": v} for k, v in by_author.items()],
+        "by_language": [{"group": k, "books": v} for k, v in by_language.items()],
+        "total": len(items),
+    }
 
 
 # Bookmarks
@@ -281,7 +300,7 @@ async def get_progress(
     return result.scalars().all()
 
 
-@router.get("/progress/{book_id}", response_model=ReadingProgressResponse)
+@router.get("/progress/{book_id}")
 async def get_book_progress(
     book_id: str,
     db: AsyncSession = Depends(get_db),
@@ -299,7 +318,7 @@ async def get_book_progress(
     progress = result.scalar_one_or_none()
     
     if not progress:
-        raise HTTPException(status_code=404, detail="No progress found for this book")
+        return {}
     
     return progress
 

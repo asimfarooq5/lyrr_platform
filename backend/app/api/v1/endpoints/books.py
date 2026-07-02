@@ -2,14 +2,17 @@
 Book endpoints
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from typing import List, Optional, Dict, Any
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.security import get_current_active_user, generate_drm_key
+from app.api.v1.endpoints.auth import get_current_active_user
+from app.core.security import generate_drm_key
 from app.models.user import User
 from app.models.book import Book, Chapter, BookMedia, UserBook, BookStatus, Language
 from app.schemas.book import (
@@ -65,22 +68,58 @@ async def list_books(
     }
 
 
-@router.get("/{book_id}", response_model=BookDetailResponse)
+@router.get("/{book_id}")
 async def get_book(
     book_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """Get book details with chapters"""
+    from sqlalchemy.orm import selectinload
     result = await db.execute(
-        select(Book).where(and_(Book.id == book_id, Book.status == BookStatus.PUBLISHED))
+        select(Book)
+        .options(selectinload(Book.chapters), selectinload(Book.media))
+        .where(and_(Book.id == book_id, Book.status == BookStatus.PUBLISHED))
     )
     book = result.scalar_one_or_none()
     
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
     
-    return book
+    return JSONResponse(content=jsonable_encoder({
+        "id": book.id,
+        "title": book.title,
+        "author": book.author,
+        "description": book.description,
+        "cover_url": book.cover_url,
+        "language": book.language.value if hasattr(book.language, 'value') else book.language,
+        "duration": book.duration,
+        "word_count": book.word_count,
+        "status": book.status.value if hasattr(book.status, 'value') else book.status,
+        "is_featured": book.is_featured,
+        "created_at": str(book.created_at) if book.created_at else None,
+        "chapters": [
+            {
+                "id": ch.id,
+                "title": ch.title,
+                "order_index": ch.order_index,
+                "paragraphs": ch.content or [],
+                "sync_data": ch.sync_data,
+            }
+            for ch in book.chapters
+        ],
+        "media": [
+            {
+                "id": m.id,
+                "format": m.format,
+                "quality": m.quality,
+                "duration": m.duration,
+                "is_ai_narrated": m.is_ai_narrated,
+                "voice_id": m.voice_id,
+            }
+            for m in book.media
+        ],
+    }))
 
 
 @router.get("/{book_id}/content", response_model=BookContentResponse)
@@ -107,7 +146,18 @@ async def get_book_content(
     )
     chapters = result.scalars().all()
     
-    return {"chapters": chapters}
+    from fastapi.encoders import jsonable_encoder
+    return jsonable_encoder({"chapters": [
+        {
+            "id": ch.id,
+            "book_id": ch.book_id,
+            "title": ch.title,
+            "order_index": ch.order_index,
+            "content": ch.content or [],
+            "sync_data": ch.sync_data,
+        }
+        for ch in chapters
+    ]})
 
 
 @router.get("/{book_id}/sync", response_model=BookSyncResponse)
@@ -140,17 +190,29 @@ async def get_book_sync(
         if chapter.sync_data:
             all_sync.extend(chapter.sync_data)
     
-    return {"sync_data": all_sync}
+    from fastapi.encoders import jsonable_encoder
+    return jsonable_encoder({"sync_data": all_sync})
 
 
-@router.post("/{book_id}/license", response_model=LicenseResponse)
+@router.post("/{book_id}/license")
 async def get_license(
     book_id: str,
-    device_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """Get DRM license for book"""
+    # Accept device_id from body or query
+    import json
+    body = await request.body()
+    device_id = None
+    if body:
+        try:
+            data = json.loads(body)
+            device_id = data.get("device_id")
+        except:
+            pass
+    
     # Verify user has book
     result = await db.execute(
         select(UserBook).where(
@@ -162,23 +224,26 @@ async def get_license(
     if not user_book:
         raise HTTPException(status_code=403, detail="Book not purchased")
     
-    # Check if expired
     if user_book.expires_at and user_book.expires_at < datetime.utcnow():
         raise HTTPException(status_code=403, detail="License expired")
     
-    # Generate license key
-    license_key = generate_drm_key(book_id, current_user.id, device_id)
+    license_key = generate_drm_key(book_id, current_user.id, device_id or "unknown")
     
-    # Get media URL
+    # Get media URL for the first audio file
     media_result = await db.execute(
         select(BookMedia).where(BookMedia.book_id == book_id).limit(1)
     )
     media = media_result.scalar_one_or_none()
     
+    audio_url = media.audio_url if media else None
+    # If relative URL, make it absolute
+    if audio_url and audio_url.startswith("/"):
+        audio_url = f"http://192.168.0.228:8000{audio_url}"
+    
     return {
         "license_key": license_key,
         "expires_at": user_book.expires_at,
-        "download_url": media.audio_url if media else None,
+        "download_url": audio_url,
         "encryption_key_id": media.encryption_key_id if media else None
     }
 

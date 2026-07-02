@@ -115,11 +115,21 @@ class UserLibraryBook(BaseModel):
     title: str
     author: str
     cover_url: Optional[str] = None
+    book_type: str = "fiction"
+    language: str = "en"
     progress_percent: float
     last_read_at: Optional[datetime] = None
     is_downloaded: bool = False
 
 
+class LibraryGroup(BaseModel):
+    group: str
+    books: List[UserLibraryBook]
+
+
 class UserLibraryResponse(BaseModel):
     items: List[UserLibraryBook]
+    by_type: List[LibraryGroup]
+    by_author: List[LibraryGroup]
+    by_language: List[LibraryGroup]
     total: int

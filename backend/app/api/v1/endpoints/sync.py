@@ -9,7 +9,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user
+from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.models.sync import SyncQueue, SyncConflict, SyncEntityType, SyncOperation
 from app.models.user_data import Bookmark, Note, ReadingProgress

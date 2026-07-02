@@ -124,7 +124,7 @@ class SyncService {
     final allProgress = await _db.getAllProgress(userId);
     final unsyncedProgress = allProgress.where((p) => 
       p.lastSyncedAt == null || 
-      (p.updatedAt != null && p.updatedAt!.isAfter(p.lastSyncedAt!))
+      (p.lastReadAt.isAfter(p.lastSyncedAt!))
     ).toList();
     
     final progressItems = unsyncedProgress.map((p) => {
@@ -141,7 +141,7 @@ class SyncService {
         'sessions_count': p.sessionsCount,
         'last_read_at': p.lastReadAt.toIso8601String(),
       },
-      'client_timestamp': (p.updatedAt ?? p.createdAt).toIso8601String(),
+      'client_timestamp': (p.lastReadAt).toIso8601String(),
     }).toList();
 
     // Combine all items
@@ -291,7 +291,6 @@ class SyncService {
           sessionsCount: data['sessions_count'] ?? 0,
           lastReadAt: DateTime.parse(data['last_read_at']),
           lastSyncedAt: DateTime.now(),
-          createdAt: DateTime.parse(data['created_at'] ?? DateTime.now().toIso8601String()),
         );
         await _db.insertProgress(progress);
         break;
@@ -360,7 +359,7 @@ class SyncService {
   /// Update progress with sync
   Future<void> updateProgress(ReadingProgressModel progress) async {
     final updated = progress.copyWith(
-      updatedAt: DateTime.now(),
+      lastSyncedAt: DateTime.now(),
     );
     
     await _db.insertProgress(updated);

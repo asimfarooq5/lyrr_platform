@@ -204,7 +204,10 @@ class ApiClient {
       }
       
       final data = jsonDecode(response.body);
-      final parsedData = parser != null ? parser(data) : data as T;
+      if (data == null) {
+        return ApiResponse.success(null as T, statusCode: statusCode);
+      }
+      final parsedData = parser != null ? parser(data) : (data is T ? data : data as T);
       return ApiResponse.success(parsedData, statusCode: statusCode);
     } else if (statusCode == 401) {
       // Get actual error from API
@@ -228,7 +231,9 @@ class ApiClient {
   /// Parse error response
   Map<String, dynamic> _parseError(String body) {
     try {
-      return jsonDecode(body) as Map<String, dynamic>;
+      final data = jsonDecode(body);
+      if (data is Map) return data as Map<String, dynamic>;
+      return {'message': body};
     } catch (e) {
       return {'message': body};
     }

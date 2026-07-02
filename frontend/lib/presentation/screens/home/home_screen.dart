@@ -18,9 +18,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
+  final _libraryKey = GlobalKey<LibraryTabState>();
 
   final _tabs = [
-    const LibraryTab(),
+    LibraryTab(),
     const DiscoverTab(),
     const ProfileTab(),
   ];
@@ -30,7 +31,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _tabs,
+        children: [
+          LibraryTab(key: _libraryKey),
+          const DiscoverTab(),
+          const ProfileTab(),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
@@ -38,6 +43,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           setState(() {
             _currentIndex = index;
           });
+          // Refresh library when switching to that tab
+          if (index == 0) {
+            _libraryKey.currentState?.refresh();
+          }
         },
         destinations: const [
           NavigationDestination(

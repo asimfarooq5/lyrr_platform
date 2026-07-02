@@ -312,11 +312,21 @@ class _FeaturedBookCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   color: AppColors.primary.withOpacity(0.1),
-                  child: book.coverUrl != null
+                  child: book.resolvedCoverUrl != null
                       ? Image.network(
-                          book.coverUrl!,
+                          book.resolvedCoverUrl!,
                           fit: BoxFit.cover,
                           width: double.infinity,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(Icons.book, color: AppColors.primary),
+                          ),
+                          loadingBuilder: (ctx, child, progress) =>
+                              progress == null ? child : const Center(
+                                child: SizedBox(
+                                  width: 24, height: 24,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
                         )
                       : const Center(
                           child: Icon(Icons.book, color: AppColors.primary),
@@ -366,9 +376,9 @@ class _BookGridCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 color: AppColors.primary.withOpacity(0.1),
-                child: book.coverUrl != null
+                child: book.resolvedCoverUrl != null
                     ? Image.network(
-                        book.coverUrl!,
+                        book.resolvedCoverUrl!,
                         fit: BoxFit.cover,
                         width: double.infinity,
                       )
@@ -451,10 +461,18 @@ class _BookDetailsSheet extends StatelessWidget {
                         width: 160,
                         height: 240,
                         color: AppColors.primary.withOpacity(0.1),
-                        child: book.coverUrl != null
+                        child: book.resolvedCoverUrl != null
                             ? Image.network(
-                                book.coverUrl!,
+                                book.resolvedCoverUrl!,
                                 fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Center(
+                                  child: Icon(Icons.book, color: AppColors.primary, size: 48),
+                                ),
+                                loadingBuilder: (ctx, child, progress) =>
+                                    progress == null ? child : const Center(
+                                      child: SizedBox(width: 24, height: 24,
+                                        child: CircularProgressIndicator(strokeWidth: 2)),
+                                    ),
                               )
                             : const Center(
                                 child: Icon(Icons.book, 

@@ -41,6 +41,7 @@ class Book(Base):
     author = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     cover_url = Column(String(500), nullable=True)
+    book_type = Column(String(50), default="fiction")  # scholar, fiction, non_fiction, children, reference
     
     # Metadata
     language = Column(Enum(Language), default=Language.EN)

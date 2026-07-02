@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.core.database import get_db
-from app.core.security import get_current_active_user, verify_drm_key
+from app.api.v1.endpoints.auth import get_current_active_user
+from app.core.security import verify_drm_key
 
 router = APIRouter()
 

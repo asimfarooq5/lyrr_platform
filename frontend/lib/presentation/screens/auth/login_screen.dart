@@ -114,7 +114,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 32),
                 // Title
                 Text(
-                  'Welcome Back',
+                  'Welcome',
                   style: theme.textTheme.displayMedium,
                   textAlign: TextAlign.center,
                 ),

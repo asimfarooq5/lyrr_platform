@@ -2,29 +2,53 @@
 {% block content %}
 <div class="header">
     <h2>Users</h2>
+    <button class="btn btn-primary" onclick="showModal('addUserModal')">+ Add User</button>
 </div>
 <div class="card">
     <table>
-        <thead>
-            <tr>
-                <th>Email</th>
-                <th>Active</th>
-                <th>Admin</th>
-                <th>Verified</th>
-                <th>Joined</th>
-            </tr>
-        </thead>
+        <thead><tr><th>Email</th><th>Status</th><th>Admin</th><th>Verified</th><th>Joined</th><th>Actions</th></tr></thead>
         <tbody>
             {% for user in users %}
             <tr>
                 <td>{{ user.email }}</td>
                 <td>{% if user.is_active %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-warning">Inactive</span>{% endif %}</td>
-                <td>{% if user.is_admin %}✅{% else %}—{% endif %}</td>
-                <td>{% if user.is_verified %}✅{% else %}—{% endif %}</td>
-                <td>{{ user.created_at[:10] }}</td>
+                <td>{{ "✅" if user.is_admin else "—" }}</td>
+                <td>{{ "✅" if user.is_verified else "—" }}</td>
+                <td>{{ user.created_at[:10] if user.created_at else "—" }}</td>
+                <td>
+                    <form method="POST" action="/admin/users/{{ user.id }}/toggle" style="display:inline">
+                        <button class="btn btn-sm" style="background:{% if user.is_active %}#fef3c7;color:#d97706{% else %}#d1fae5;color:#059669{% endif %}">
+                            {{ "Suspend" if user.is_active else "Activate" }}
+                        </button>
+                    </form>
+                    {% if not user.is_admin %}
+                    <form method="POST" action="/admin/users/{{ user.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this user?')">
+                        <button class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<div id="addUserModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)hideModal('addUserModal')">
+    <div class="modal">
+        <h3>Add User</h3>
+        <form method="POST" action="/admin/users/create">
+            <div class="form-group"><label>Email</label><input type="email" name="email" required></div>
+            <div class="form-group"><label>Password</label><input type="password" name="password" required minlength="8"></div>
+            <div class="form-group"><label><input type="checkbox" name="is_admin"> Admin privileges</label></div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideModal('addUserModal')" style="background:#f0f0f0;">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function showModal(id){document.getElementById(id).style.display='flex';}
+function hideModal(id){document.getElementById(id).style.display='none';}
+</script>
 {% endblock %}
