@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 class AudioService {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player;
   double _speed = 1.0;
 
   AudioPlayer get player => _player;
@@ -12,9 +12,16 @@ class AudioService {
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
+  AudioService() : _player = AudioPlayer() {
+    _player.setVolume(1.0);
+  }
+
   Future<void> setAsset(String assetPath) async {
     try {
-      await _player.setAudioSource(AudioSource.asset(assetPath));
+      await _player.setAudioSource(
+        AudioSource.asset(assetPath),
+        preload: true,
+      );
       await _player.setVolume(1.0);
       await _player.setSpeed(_speed);
       debugPrint('Audio loaded: $assetPath');
@@ -25,6 +32,7 @@ class AudioService {
 
   Future<void> play() async {
     try {
+      await _player.seek(_player.position);
       await _player.setVolume(1.0);
       await _player.play();
       debugPrint('Audio playing: ${_player.playing}');
