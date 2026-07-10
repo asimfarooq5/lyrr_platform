@@ -1,0 +1,8 @@
+{
+  "id": 1,
+  "title": "Sample Book",
+  "author": "John Doe",
+  "duration": 442,
+  "language": "en",
+  "cover": "cover.jpg"
+}

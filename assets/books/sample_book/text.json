@@ -1,0 +1,4971 @@
+{
+  "chapters": [
+    {
+      "title": "Chapter 1: Down the Rabbit-Hole",
+      "paragraphs": [
+        {
+          "words": [
+            {
+              "id": "w1",
+              "text": "Alice"
+            },
+            {
+              "id": "w2",
+              "text": "was"
+            },
+            {
+              "id": "w3",
+              "text": "beginning"
+            },
+            {
+              "id": "w4",
+              "text": "to"
+            },
+            {
+              "id": "w5",
+              "text": "get"
+            },
+            {
+              "id": "w6",
+              "text": "very"
+            },
+            {
+              "id": "w7",
+              "text": "tired"
+            },
+            {
+              "id": "w8",
+              "text": "of"
+            },
+            {
+              "id": "w9",
+              "text": "sitting"
+            },
+            {
+              "id": "w10",
+              "text": "by"
+            },
+            {
+              "id": "w11",
+              "text": "her"
+            },
+            {
+              "id": "w12",
+              "text": "sister"
+            },
+            {
+              "id": "w13",
+              "text": "on"
+            },
+            {
+              "id": "w14",
+              "text": "the"
+            },
+            {
+              "id": "w15",
+              "text": "bank,"
+            },
+            {
+              "id": "w16",
+              "text": "and"
+            },
+            {
+              "id": "w17",
+              "text": "of"
+            },
+            {
+              "id": "w18",
+              "text": "having"
+            },
+            {
+              "id": "w19",
+              "text": "nothing"
+            },
+            {
+              "id": "w20",
+              "text": "to"
+            },
+            {
+              "id": "w21",
+              "text": "do:"
+            },
+            {
+              "id": "w22",
+              "text": "once"
+            },
+            {
+              "id": "w23",
+              "text": "or"
+            },
+            {
+              "id": "w24",
+              "text": "twice"
+            },
+            {
+              "id": "w25",
+              "text": "she"
+            },
+            {
+              "id": "w26",
+              "text": "had"
+            },
+            {
+              "id": "w27",
+              "text": "peeped"
+            },
+            {
+              "id": "w28",
+              "text": "into"
+            },
+            {
+              "id": "w29",
+              "text": "the"
+            },
+            {
+              "id": "w30",
+              "text": "book"
+            },
+            {
+              "id": "w31",
+              "text": "her"
+            },
+            {
+              "id": "w32",
+              "text": "sister"
+            },
+            {
+              "id": "w33",
+              "text": "was"
+            },
+            {
+              "id": "w34",
+              "text": "reading,"
+            },
+            {
+              "id": "w35",
+              "text": "but"
+            },
+            {
+              "id": "w36",
+              "text": "it"
+            },
+            {
+              "id": "w37",
+              "text": "had"
+            },
+            {
+              "id": "w38",
+              "text": "no"
+            },
+            {
+              "id": "w39",
+              "text": "pictures"
+            },
+            {
+              "id": "w40",
+              "text": "or"
+            },
+            {
+              "id": "w41",
+              "text": "conversations"
+            },
+            {
+              "id": "w42",
+              "text": "in"
+            },
+            {
+              "id": "w43",
+              "text": "it,"
+            },
+            {
+              "id": "w44",
+              "text": "'and"
+            },
+            {
+              "id": "w45",
+              "text": "what"
+            },
+            {
+              "id": "w46",
+              "text": "is"
+            },
+            {
+              "id": "w47",
+              "text": "the"
+            },
+            {
+              "id": "w48",
+              "text": "use"
+            },
+            {
+              "id": "w49",
+              "text": "of"
+            },
+            {
+              "id": "w50",
+              "text": "a"
+            },
+            {
+              "id": "w51",
+              "text": "book,'"
+            },
+            {
+              "id": "w52",
+              "text": "thought"
+            },
+            {
+              "id": "w53",
+              "text": "Alice"
+            },
+            {
+              "id": "w54",
+              "text": "'without"
+            },
+            {
+              "id": "w55",
+              "text": "pictures"
+            },
+            {
+              "id": "w56",
+              "text": "or"
+            },
+            {
+              "id": "w57",
+              "text": "conversations?'"
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w58",
+              "text": "So"
+            },
+            {
+              "id": "w59",
+              "text": "she"
+            },
+            {
+              "id": "w60",
+              "text": "was"
+            },
+            {
+              "id": "w61",
+              "text": "considering"
+            },
+            {
+              "id": "w62",
+              "text": "in"
+            },
+            {
+              "id": "w63",
+              "text": "her"
+            },
+            {
+              "id": "w64",
+              "text": "own"
+            },
+            {
+              "id": "w65",
+              "text": "mind"
+            },
+            {
+              "id": "w66",
+              "text": "(as"
+            },
+            {
+              "id": "w67",
+              "text": "well"
+            },
+            {
+              "id": "w68",
+              "text": "as"
+            },
+            {
+              "id": "w69",
+              "text": "she"
+            },
+            {
+              "id": "w70",
+              "text": "could,"
+            },
+            {
+              "id": "w71",
+              "text": "for"
+            },
+            {
+              "id": "w72",
+              "text": "the"
+            },
+            {
+              "id": "w73",
+              "text": "hot"
+            },
+            {
+              "id": "w74",
+              "text": "day"
+            },
+            {
+              "id": "w75",
+              "text": "made"
+            },
+            {
+              "id": "w76",
+              "text": "her"
+            },
+            {
+              "id": "w77",
+              "text": "feel"
+            },
+            {
+              "id": "w78",
+              "text": "very"
+            },
+            {
+              "id": "w79",
+              "text": "sleepy"
+            },
+            {
+              "id": "w80",
+              "text": "and"
+            },
+            {
+              "id": "w81",
+              "text": "stupid),"
+            },
+            {
+              "id": "w82",
+              "text": "whether"
+            },
+            {
+              "id": "w83",
+              "text": "the"
+            },
+            {
+              "id": "w84",
+              "text": "pleasure"
+            },
+            {
+              "id": "w85",
+              "text": "of"
+            },
+            {
+              "id": "w86",
+              "text": "making"
+            },
+            {
+              "id": "w87",
+              "text": "a"
+            },
+            {
+              "id": "w88",
+              "text": "daisy-chain"
+            },
+            {
+              "id": "w89",
+              "text": "would"
+            },
+            {
+              "id": "w90",
+              "text": "be"
+            },
+            {
+              "id": "w91",
+              "text": "worth"
+            },
+            {
+              "id": "w92",
+              "text": "the"
+            },
+            {
+              "id": "w93",
+              "text": "trouble"
+            },
+            {
+              "id": "w94",
+              "text": "of"
+            },
+            {
+              "id": "w95",
+              "text": "getting"
+            },
+            {
+              "id": "w96",
+              "text": "up"
+            },
+            {
+              "id": "w97",
+              "text": "and"
+            },
+            {
+              "id": "w98",
+              "text": "picking"
+            },
+            {
+              "id": "w99",
+              "text": "the"
+            },
+            {
+              "id": "w100",
+              "text": "daisies,"
+            },
+            {
+              "id": "w101",
+              "text": "when"
+            },
+            {
+              "id": "w102",
+              "text": "suddenly"
+            },
+            {
+              "id": "w103",
+              "text": "a"
+            },
+            {
+              "id": "w104",
+              "text": "White"
+            },
+            {
+              "id": "w105",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w106",
+              "text": "with"
+            },
+            {
+              "id": "w107",
+              "text": "pink"
+            },
+            {
+              "id": "w108",
+              "text": "eyes"
+            },
+            {
+              "id": "w109",
+              "text": "ran"
+            },
+            {
+              "id": "w110",
+              "text": "close"
+            },
+            {
+              "id": "w111",
+              "text": "by"
+            },
+            {
+              "id": "w112",
+              "text": "her."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w113",
+              "text": "There"
+            },
+            {
+              "id": "w114",
+              "text": "was"
+            },
+            {
+              "id": "w115",
+              "text": "nothing"
+            },
+            {
+              "id": "w116",
+              "text": "so"
+            },
+            {
+              "id": "w117",
+              "text": "VERY"
+            },
+            {
+              "id": "w118",
+              "text": "remarkable"
+            },
+            {
+              "id": "w119",
+              "text": "in"
+            },
+            {
+              "id": "w120",
+              "text": "that;"
+            },
+            {
+              "id": "w121",
+              "text": "nor"
+            },
+            {
+              "id": "w122",
+              "text": "did"
+            },
+            {
+              "id": "w123",
+              "text": "Alice"
+            },
+            {
+              "id": "w124",
+              "text": "think"
+            },
+            {
+              "id": "w125",
+              "text": "it"
+            },
+            {
+              "id": "w126",
+              "text": "so"
+            },
+            {
+              "id": "w127",
+              "text": "VERY"
+            },
+            {
+              "id": "w128",
+              "text": "much"
+            },
+            {
+              "id": "w129",
+              "text": "out"
+            },
+            {
+              "id": "w130",
+              "text": "of"
+            },
+            {
+              "id": "w131",
+              "text": "the"
+            },
+            {
+              "id": "w132",
+              "text": "way"
+            },
+            {
+              "id": "w133",
+              "text": "to"
+            },
+            {
+              "id": "w134",
+              "text": "hear"
+            },
+            {
+              "id": "w135",
+              "text": "the"
+            },
+            {
+              "id": "w136",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w137",
+              "text": "say"
+            },
+            {
+              "id": "w138",
+              "text": "to"
+            },
+            {
+              "id": "w139",
+              "text": "itself,"
+            },
+            {
+              "id": "w140",
+              "text": "'Oh"
+            },
+            {
+              "id": "w141",
+              "text": "dear!"
+            },
+            {
+              "id": "w142",
+              "text": "Oh"
+            },
+            {
+              "id": "w143",
+              "text": "dear!"
+            },
+            {
+              "id": "w144",
+              "text": "I"
+            },
+            {
+              "id": "w145",
+              "text": "shall"
+            },
+            {
+              "id": "w146",
+              "text": "be"
+            },
+            {
+              "id": "w147",
+              "text": "late!'"
+            },
+            {
+              "id": "w148",
+              "text": "(when"
+            },
+            {
+              "id": "w149",
+              "text": "she"
+            },
+            {
+              "id": "w150",
+              "text": "thought"
+            },
+            {
+              "id": "w151",
+              "text": "it"
+            },
+            {
+              "id": "w152",
+              "text": "over"
+            },
+            {
+              "id": "w153",
+              "text": "afterwards,"
+            },
+            {
+              "id": "w154",
+              "text": "it"
+            },
+            {
+              "id": "w155",
+              "text": "occurred"
+            },
+            {
+              "id": "w156",
+              "text": "to"
+            },
+            {
+              "id": "w157",
+              "text": "her"
+            },
+            {
+              "id": "w158",
+              "text": "that"
+            },
+            {
+              "id": "w159",
+              "text": "she"
+            },
+            {
+              "id": "w160",
+              "text": "ought"
+            },
+            {
+              "id": "w161",
+              "text": "to"
+            },
+            {
+              "id": "w162",
+              "text": "have"
+            },
+            {
+              "id": "w163",
+              "text": "wondered"
+            },
+            {
+              "id": "w164",
+              "text": "at"
+            },
+            {
+              "id": "w165",
+              "text": "this,"
+            },
+            {
+              "id": "w166",
+              "text": "but"
+            },
+            {
+              "id": "w167",
+              "text": "at"
+            },
+            {
+              "id": "w168",
+              "text": "the"
+            },
+            {
+              "id": "w169",
+              "text": "time"
+            },
+            {
+              "id": "w170",
+              "text": "it"
+            },
+            {
+              "id": "w171",
+              "text": "all"
+            },
+            {
+              "id": "w172",
+              "text": "seemed"
+            },
+            {
+              "id": "w173",
+              "text": "quite"
+            },
+            {
+              "id": "w174",
+              "text": "natural);"
+            },
+            {
+              "id": "w175",
+              "text": "but"
+            },
+            {
+              "id": "w176",
+              "text": "when"
+            },
+            {
+              "id": "w177",
+              "text": "the"
+            },
+            {
+              "id": "w178",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w179",
+              "text": "actually"
+            },
+            {
+              "id": "w180",
+              "text": "TOOK"
+            },
+            {
+              "id": "w181",
+              "text": "A"
+            },
+            {
+              "id": "w182",
+              "text": "WATCH"
+            },
+            {
+              "id": "w183",
+              "text": "OUT"
+            },
+            {
+              "id": "w184",
+              "text": "OF"
+            },
+            {
+              "id": "w185",
+              "text": "ITS"
+            },
+            {
+              "id": "w186",
+              "text": "WAISTCOAT-POCKET,"
+            },
+            {
+              "id": "w187",
+              "text": "and"
+            },
+            {
+              "id": "w188",
+              "text": "looked"
+            },
+            {
+              "id": "w189",
+              "text": "at"
+            },
+            {
+              "id": "w190",
+              "text": "it,"
+            },
+            {
+              "id": "w191",
+              "text": "and"
+            },
+            {
+              "id": "w192",
+              "text": "then"
+            },
+            {
+              "id": "w193",
+              "text": "hurried"
+            },
+            {
+              "id": "w194",
+              "text": "on,"
+            },
+            {
+              "id": "w195",
+              "text": "Alice"
+            },
+            {
+              "id": "w196",
+              "text": "started"
+            },
+            {
+              "id": "w197",
+              "text": "to"
+            },
+            {
+              "id": "w198",
+              "text": "her"
+            },
+            {
+              "id": "w199",
+              "text": "feet,"
+            },
+            {
+              "id": "w200",
+              "text": "for"
+            },
+            {
+              "id": "w201",
+              "text": "it"
+            },
+            {
+              "id": "w202",
+              "text": "flashed"
+            },
+            {
+              "id": "w203",
+              "text": "across"
+            },
+            {
+              "id": "w204",
+              "text": "her"
+            },
+            {
+              "id": "w205",
+              "text": "mind"
+            },
+            {
+              "id": "w206",
+              "text": "that"
+            },
+            {
+              "id": "w207",
+              "text": "she"
+            },
+            {
+              "id": "w208",
+              "text": "had"
+            },
+            {
+              "id": "w209",
+              "text": "never"
+            },
+            {
+              "id": "w210",
+              "text": "before"
+            },
+            {
+              "id": "w211",
+              "text": "seen"
+            },
+            {
+              "id": "w212",
+              "text": "a"
+            },
+            {
+              "id": "w213",
+              "text": "rabbit"
+            },
+            {
+              "id": "w214",
+              "text": "with"
+            },
+            {
+              "id": "w215",
+              "text": "a"
+            },
+            {
+              "id": "w216",
+              "text": "waistcoat-pocket,"
+            },
+            {
+              "id": "w217",
+              "text": "or"
+            },
+            {
+              "id": "w218",
+              "text": "a"
+            },
+            {
+              "id": "w219",
+              "text": "watch"
+            },
+            {
+              "id": "w220",
+              "text": "to"
+            },
+            {
+              "id": "w221",
+              "text": "take"
+            },
+            {
+              "id": "w222",
+              "text": "out"
+            },
+            {
+              "id": "w223",
+              "text": "of"
+            },
+            {
+              "id": "w224",
+              "text": "it,"
+            },
+            {
+              "id": "w225",
+              "text": "and"
+            },
+            {
+              "id": "w226",
+              "text": "burning"
+            },
+            {
+              "id": "w227",
+              "text": "with"
+            },
+            {
+              "id": "w228",
+              "text": "curiosity,"
+            },
+            {
+              "id": "w229",
+              "text": "she"
+            },
+            {
+              "id": "w230",
+              "text": "ran"
+            },
+            {
+              "id": "w231",
+              "text": "across"
+            },
+            {
+              "id": "w232",
+              "text": "the"
+            },
+            {
+              "id": "w233",
+              "text": "field"
+            },
+            {
+              "id": "w234",
+              "text": "after"
+            },
+            {
+              "id": "w235",
+              "text": "it,"
+            },
+            {
+              "id": "w236",
+              "text": "and"
+            },
+            {
+              "id": "w237",
+              "text": "fortunately"
+            },
+            {
+              "id": "w238",
+              "text": "was"
+            },
+            {
+              "id": "w239",
+              "text": "just"
+            },
+            {
+              "id": "w240",
+              "text": "in"
+            },
+            {
+              "id": "w241",
+              "text": "time"
+            },
+            {
+              "id": "w242",
+              "text": "to"
+            },
+            {
+              "id": "w243",
+              "text": "see"
+            },
+            {
+              "id": "w244",
+              "text": "it"
+            },
+            {
+              "id": "w245",
+              "text": "pop"
+            },
+            {
+              "id": "w246",
+              "text": "down"
+            },
+            {
+              "id": "w247",
+              "text": "a"
+            },
+            {
+              "id": "w248",
+              "text": "large"
+            },
+            {
+              "id": "w249",
+              "text": "rabbit-hole"
+            },
+            {
+              "id": "w250",
+              "text": "under"
+            },
+            {
+              "id": "w251",
+              "text": "the"
+            },
+            {
+              "id": "w252",
+              "text": "hedge."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w253",
+              "text": "In"
+            },
+            {
+              "id": "w254",
+              "text": "another"
+            },
+            {
+              "id": "w255",
+              "text": "moment"
+            },
+            {
+              "id": "w256",
+              "text": "down"
+            },
+            {
+              "id": "w257",
+              "text": "went"
+            },
+            {
+              "id": "w258",
+              "text": "Alice"
+            },
+            {
+              "id": "w259",
+              "text": "after"
+            },
+            {
+              "id": "w260",
+              "text": "it,"
+            },
+            {
+              "id": "w261",
+              "text": "never"
+            },
+            {
+              "id": "w262",
+              "text": "once"
+            },
+            {
+              "id": "w263",
+              "text": "considering"
+            },
+            {
+              "id": "w264",
+              "text": "how"
+            },
+            {
+              "id": "w265",
+              "text": "in"
+            },
+            {
+              "id": "w266",
+              "text": "the"
+            },
+            {
+              "id": "w267",
+              "text": "world"
+            },
+            {
+              "id": "w268",
+              "text": "she"
+            },
+            {
+              "id": "w269",
+              "text": "was"
+            },
+            {
+              "id": "w270",
+              "text": "to"
+            },
+            {
+              "id": "w271",
+              "text": "get"
+            },
+            {
+              "id": "w272",
+              "text": "out"
+            },
+            {
+              "id": "w273",
+              "text": "again."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w274",
+              "text": "The"
+            },
+            {
+              "id": "w275",
+              "text": "rabbit-hole"
+            },
+            {
+              "id": "w276",
+              "text": "went"
+            },
+            {
+              "id": "w277",
+              "text": "straight"
+            },
+            {
+              "id": "w278",
+              "text": "on"
+            },
+            {
+              "id": "w279",
+              "text": "like"
+            },
+            {
+              "id": "w280",
+              "text": "a"
+            },
+            {
+              "id": "w281",
+              "text": "tunnel"
+            },
+            {
+              "id": "w282",
+              "text": "for"
+            },
+            {
+              "id": "w283",
+              "text": "some"
+            },
+            {
+              "id": "w284",
+              "text": "way,"
+            },
+            {
+              "id": "w285",
+              "text": "and"
+            },
+            {
+              "id": "w286",
+              "text": "then"
+            },
+            {
+              "id": "w287",
+              "text": "dipped"
+            },
+            {
+              "id": "w288",
+              "text": "suddenly"
+            },
+            {
+              "id": "w289",
+              "text": "down,"
+            },
+            {
+              "id": "w290",
+              "text": "so"
+            },
+            {
+              "id": "w291",
+              "text": "suddenly"
+            },
+            {
+              "id": "w292",
+              "text": "that"
+            },
+            {
+              "id": "w293",
+              "text": "Alice"
+            },
+            {
+              "id": "w294",
+              "text": "had"
+            },
+            {
+              "id": "w295",
+              "text": "not"
+            },
+            {
+              "id": "w296",
+              "text": "a"
+            },
+            {
+              "id": "w297",
+              "text": "moment"
+            },
+            {
+              "id": "w298",
+              "text": "to"
+            },
+            {
+              "id": "w299",
+              "text": "think"
+            },
+            {
+              "id": "w300",
+              "text": "about"
+            },
+            {
+              "id": "w301",
+              "text": "stopping"
+            },
+            {
+              "id": "w302",
+              "text": "herself"
+            },
+            {
+              "id": "w303",
+              "text": "before"
+            },
+            {
+              "id": "w304",
+              "text": "she"
+            },
+            {
+              "id": "w305",
+              "text": "found"
+            },
+            {
+              "id": "w306",
+              "text": "herself"
+            },
+            {
+              "id": "w307",
+              "text": "falling"
+            },
+            {
+              "id": "w308",
+              "text": "down"
+            },
+            {
+              "id": "w309",
+              "text": "a"
+            },
+            {
+              "id": "w310",
+              "text": "very"
+            },
+            {
+              "id": "w311",
+              "text": "deep"
+            },
+            {
+              "id": "w312",
+              "text": "well."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w313",
+              "text": "Either"
+            },
+            {
+              "id": "w314",
+              "text": "the"
+            },
+            {
+              "id": "w315",
+              "text": "well"
+            },
+            {
+              "id": "w316",
+              "text": "was"
+            },
+            {
+              "id": "w317",
+              "text": "very"
+            },
+            {
+              "id": "w318",
+              "text": "deep,"
+            },
+            {
+              "id": "w319",
+              "text": "or"
+            },
+            {
+              "id": "w320",
+              "text": "she"
+            },
+            {
+              "id": "w321",
+              "text": "fell"
+            },
+            {
+              "id": "w322",
+              "text": "very"
+            },
+            {
+              "id": "w323",
+              "text": "slowly,"
+            },
+            {
+              "id": "w324",
+              "text": "for"
+            },
+            {
+              "id": "w325",
+              "text": "she"
+            },
+            {
+              "id": "w326",
+              "text": "had"
+            },
+            {
+              "id": "w327",
+              "text": "plenty"
+            },
+            {
+              "id": "w328",
+              "text": "of"
+            },
+            {
+              "id": "w329",
+              "text": "time"
+            },
+            {
+              "id": "w330",
+              "text": "as"
+            },
+            {
+              "id": "w331",
+              "text": "she"
+            },
+            {
+              "id": "w332",
+              "text": "went"
+            },
+            {
+              "id": "w333",
+              "text": "down"
+            },
+            {
+              "id": "w334",
+              "text": "to"
+            },
+            {
+              "id": "w335",
+              "text": "look"
+            },
+            {
+              "id": "w336",
+              "text": "about"
+            },
+            {
+              "id": "w337",
+              "text": "her"
+            },
+            {
+              "id": "w338",
+              "text": "and"
+            },
+            {
+              "id": "w339",
+              "text": "to"
+            },
+            {
+              "id": "w340",
+              "text": "wonder"
+            },
+            {
+              "id": "w341",
+              "text": "what"
+            },
+            {
+              "id": "w342",
+              "text": "was"
+            },
+            {
+              "id": "w343",
+              "text": "going"
+            },
+            {
+              "id": "w344",
+              "text": "to"
+            },
+            {
+              "id": "w345",
+              "text": "happen"
+            },
+            {
+              "id": "w346",
+              "text": "next."
+            },
+            {
+              "id": "w347",
+              "text": "First,"
+            },
+            {
+              "id": "w348",
+              "text": "she"
+            },
+            {
+              "id": "w349",
+              "text": "tried"
+            },
+            {
+              "id": "w350",
+              "text": "to"
+            },
+            {
+              "id": "w351",
+              "text": "look"
+            },
+            {
+              "id": "w352",
+              "text": "down"
+            },
+            {
+              "id": "w353",
+              "text": "and"
+            },
+            {
+              "id": "w354",
+              "text": "make"
+            },
+            {
+              "id": "w355",
+              "text": "out"
+            },
+            {
+              "id": "w356",
+              "text": "what"
+            },
+            {
+              "id": "w357",
+              "text": "she"
+            },
+            {
+              "id": "w358",
+              "text": "was"
+            },
+            {
+              "id": "w359",
+              "text": "coming"
+            },
+            {
+              "id": "w360",
+              "text": "to,"
+            },
+            {
+              "id": "w361",
+              "text": "but"
+            },
+            {
+              "id": "w362",
+              "text": "it"
+            },
+            {
+              "id": "w363",
+              "text": "was"
+            },
+            {
+              "id": "w364",
+              "text": "too"
+            },
+            {
+              "id": "w365",
+              "text": "dark"
+            },
+            {
+              "id": "w366",
+              "text": "to"
+            },
+            {
+              "id": "w367",
+              "text": "see"
+            },
+            {
+              "id": "w368",
+              "text": "anything;"
+            },
+            {
+              "id": "w369",
+              "text": "then"
+            },
+            {
+              "id": "w370",
+              "text": "she"
+            },
+            {
+              "id": "w371",
+              "text": "looked"
+            },
+            {
+              "id": "w372",
+              "text": "at"
+            },
+            {
+              "id": "w373",
+              "text": "the"
+            },
+            {
+              "id": "w374",
+              "text": "sides"
+            },
+            {
+              "id": "w375",
+              "text": "of"
+            },
+            {
+              "id": "w376",
+              "text": "the"
+            },
+            {
+              "id": "w377",
+              "text": "well,"
+            },
+            {
+              "id": "w378",
+              "text": "and"
+            },
+            {
+              "id": "w379",
+              "text": "noticed"
+            },
+            {
+              "id": "w380",
+              "text": "that"
+            },
+            {
+              "id": "w381",
+              "text": "they"
+            },
+            {
+              "id": "w382",
+              "text": "were"
+            },
+            {
+              "id": "w383",
+              "text": "filled"
+            },
+            {
+              "id": "w384",
+              "text": "with"
+            },
+            {
+              "id": "w385",
+              "text": "cupboards"
+            },
+            {
+              "id": "w386",
+              "text": "and"
+            },
+            {
+              "id": "w387",
+              "text": "book-shelves;"
+            },
+            {
+              "id": "w388",
+              "text": "here"
+            },
+            {
+              "id": "w389",
+              "text": "and"
+            },
+            {
+              "id": "w390",
+              "text": "there"
+            },
+            {
+              "id": "w391",
+              "text": "she"
+            },
+            {
+              "id": "w392",
+              "text": "saw"
+            },
+            {
+              "id": "w393",
+              "text": "maps"
+            },
+            {
+              "id": "w394",
+              "text": "and"
+            },
+            {
+              "id": "w395",
+              "text": "pictures"
+            },
+            {
+              "id": "w396",
+              "text": "hung"
+            },
+            {
+              "id": "w397",
+              "text": "upon"
+            },
+            {
+              "id": "w398",
+              "text": "pegs."
+            },
+            {
+              "id": "w399",
+              "text": "She"
+            },
+            {
+              "id": "w400",
+              "text": "took"
+            },
+            {
+              "id": "w401",
+              "text": "down"
+            },
+            {
+              "id": "w402",
+              "text": "a"
+            },
+            {
+              "id": "w403",
+              "text": "jar"
+            },
+            {
+              "id": "w404",
+              "text": "from"
+            },
+            {
+              "id": "w405",
+              "text": "one"
+            },
+            {
+              "id": "w406",
+              "text": "of"
+            },
+            {
+              "id": "w407",
+              "text": "the"
+            },
+            {
+              "id": "w408",
+              "text": "shelves"
+            },
+            {
+              "id": "w409",
+              "text": "as"
+            },
+            {
+              "id": "w410",
+              "text": "she"
+            },
+            {
+              "id": "w411",
+              "text": "passed;"
+            },
+            {
+              "id": "w412",
+              "text": "it"
+            },
+            {
+              "id": "w413",
+              "text": "was"
+            },
+            {
+              "id": "w414",
+              "text": "labelled"
+            },
+            {
+              "id": "w415",
+              "text": "'ORANGE"
+            },
+            {
+              "id": "w416",
+              "text": "MARMALADE',"
+            },
+            {
+              "id": "w417",
+              "text": "but"
+            },
+            {
+              "id": "w418",
+              "text": "to"
+            },
+            {
+              "id": "w419",
+              "text": "her"
+            },
+            {
+              "id": "w420",
+              "text": "great"
+            },
+            {
+              "id": "w421",
+              "text": "disappointment"
+            },
+            {
+              "id": "w422",
+              "text": "it"
+            },
+            {
+              "id": "w423",
+              "text": "was"
+            },
+            {
+              "id": "w424",
+              "text": "empty:"
+            },
+            {
+              "id": "w425",
+              "text": "she"
+            },
+            {
+              "id": "w426",
+              "text": "did"
+            },
+            {
+              "id": "w427",
+              "text": "not"
+            },
+            {
+              "id": "w428",
+              "text": "like"
+            },
+            {
+              "id": "w429",
+              "text": "to"
+            },
+            {
+              "id": "w430",
+              "text": "drop"
+            },
+            {
+              "id": "w431",
+              "text": "the"
+            },
+            {
+              "id": "w432",
+              "text": "jar"
+            },
+            {
+              "id": "w433",
+              "text": "for"
+            },
+            {
+              "id": "w434",
+              "text": "fear"
+            },
+            {
+              "id": "w435",
+              "text": "of"
+            },
+            {
+              "id": "w436",
+              "text": "killing"
+            },
+            {
+              "id": "w437",
+              "text": "somebody,"
+            },
+            {
+              "id": "w438",
+              "text": "so"
+            },
+            {
+              "id": "w439",
+              "text": "managed"
+            },
+            {
+              "id": "w440",
+              "text": "to"
+            },
+            {
+              "id": "w441",
+              "text": "put"
+            },
+            {
+              "id": "w442",
+              "text": "it"
+            },
+            {
+              "id": "w443",
+              "text": "into"
+            },
+            {
+              "id": "w444",
+              "text": "one"
+            },
+            {
+              "id": "w445",
+              "text": "of"
+            },
+            {
+              "id": "w446",
+              "text": "the"
+            },
+            {
+              "id": "w447",
+              "text": "cupboards"
+            },
+            {
+              "id": "w448",
+              "text": "as"
+            },
+            {
+              "id": "w449",
+              "text": "she"
+            },
+            {
+              "id": "w450",
+              "text": "fell"
+            },
+            {
+              "id": "w451",
+              "text": "past"
+            },
+            {
+              "id": "w452",
+              "text": "it."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 2: The Pool of Tears",
+      "paragraphs": [
+        {
+          "words": [
+            {
+              "id": "w453",
+              "text": "Curiouser"
+            },
+            {
+              "id": "w454",
+              "text": "and"
+            },
+            {
+              "id": "w455",
+              "text": "curiouser!"
+            },
+            {
+              "id": "w456",
+              "text": "cried"
+            },
+            {
+              "id": "w457",
+              "text": "Alice"
+            },
+            {
+              "id": "w458",
+              "text": "(she"
+            },
+            {
+              "id": "w459",
+              "text": "was"
+            },
+            {
+              "id": "w460",
+              "text": "so"
+            },
+            {
+              "id": "w461",
+              "text": "much"
+            },
+            {
+              "id": "w462",
+              "text": "surprised,"
+            },
+            {
+              "id": "w463",
+              "text": "that"
+            },
+            {
+              "id": "w464",
+              "text": "for"
+            },
+            {
+              "id": "w465",
+              "text": "the"
+            },
+            {
+              "id": "w466",
+              "text": "moment"
+            },
+            {
+              "id": "w467",
+              "text": "she"
+            },
+            {
+              "id": "w468",
+              "text": "quite"
+            },
+            {
+              "id": "w469",
+              "text": "forgot"
+            },
+            {
+              "id": "w470",
+              "text": "how"
+            },
+            {
+              "id": "w471",
+              "text": "to"
+            },
+            {
+              "id": "w472",
+              "text": "speak"
+            },
+            {
+              "id": "w473",
+              "text": "good"
+            },
+            {
+              "id": "w474",
+              "text": "English);"
+            },
+            {
+              "id": "w475",
+              "text": "'now"
+            },
+            {
+              "id": "w476",
+              "text": "I'm"
+            },
+            {
+              "id": "w477",
+              "text": "opening"
+            },
+            {
+              "id": "w478",
+              "text": "out"
+            },
+            {
+              "id": "w479",
+              "text": "like"
+            },
+            {
+              "id": "w480",
+              "text": "the"
+            },
+            {
+              "id": "w481",
+              "text": "largest"
+            },
+            {
+              "id": "w482",
+              "text": "telescope"
+            },
+            {
+              "id": "w483",
+              "text": "that"
+            },
+            {
+              "id": "w484",
+              "text": "ever"
+            },
+            {
+              "id": "w485",
+              "text": "was!"
+            },
+            {
+              "id": "w486",
+              "text": "Good-bye,"
+            },
+            {
+              "id": "w487",
+              "text": "feet!'"
+            },
+            {
+              "id": "w488",
+              "text": "(for"
+            },
+            {
+              "id": "w489",
+              "text": "when"
+            },
+            {
+              "id": "w490",
+              "text": "she"
+            },
+            {
+              "id": "w491",
+              "text": "looked"
+            },
+            {
+              "id": "w492",
+              "text": "down"
+            },
+            {
+              "id": "w493",
+              "text": "at"
+            },
+            {
+              "id": "w494",
+              "text": "her"
+            },
+            {
+              "id": "w495",
+              "text": "feet,"
+            },
+            {
+              "id": "w496",
+              "text": "they"
+            },
+            {
+              "id": "w497",
+              "text": "seemed"
+            },
+            {
+              "id": "w498",
+              "text": "to"
+            },
+            {
+              "id": "w499",
+              "text": "be"
+            },
+            {
+              "id": "w500",
+              "text": "almost"
+            },
+            {
+              "id": "w501",
+              "text": "out"
+            },
+            {
+              "id": "w502",
+              "text": "of"
+            },
+            {
+              "id": "w503",
+              "text": "sight,"
+            },
+            {
+              "id": "w504",
+              "text": "they"
+            },
+            {
+              "id": "w505",
+              "text": "were"
+            },
+            {
+              "id": "w506",
+              "text": "getting"
+            },
+            {
+              "id": "w507",
+              "text": "so"
+            },
+            {
+              "id": "w508",
+              "text": "far"
+            },
+            {
+              "id": "w509",
+              "text": "off)."
+            },
+            {
+              "id": "w510",
+              "text": "'Oh,"
+            },
+            {
+              "id": "w511",
+              "text": "my"
+            },
+            {
+              "id": "w512",
+              "text": "poor"
+            },
+            {
+              "id": "w513",
+              "text": "little"
+            },
+            {
+              "id": "w514",
+              "text": "feet,"
+            },
+            {
+              "id": "w515",
+              "text": "I"
+            },
+            {
+              "id": "w516",
+              "text": "wonder"
+            },
+            {
+              "id": "w517",
+              "text": "who"
+            },
+            {
+              "id": "w518",
+              "text": "will"
+            },
+            {
+              "id": "w519",
+              "text": "put"
+            },
+            {
+              "id": "w520",
+              "text": "on"
+            },
+            {
+              "id": "w521",
+              "text": "your"
+            },
+            {
+              "id": "w522",
+              "text": "shoes"
+            },
+            {
+              "id": "w523",
+              "text": "and"
+            },
+            {
+              "id": "w524",
+              "text": "stockings"
+            },
+            {
+              "id": "w525",
+              "text": "for"
+            },
+            {
+              "id": "w526",
+              "text": "you"
+            },
+            {
+              "id": "w527",
+              "text": "now,"
+            },
+            {
+              "id": "w528",
+              "text": "dears?"
+            },
+            {
+              "id": "w529",
+              "text": "I'm"
+            },
+            {
+              "id": "w530",
+              "text": "sure"
+            },
+            {
+              "id": "w531",
+              "text": "I"
+            },
+            {
+              "id": "w532",
+              "text": "shan't"
+            },
+            {
+              "id": "w533",
+              "text": "be"
+            },
+            {
+              "id": "w534",
+              "text": "able!"
+            },
+            {
+              "id": "w535",
+              "text": "I"
+            },
+            {
+              "id": "w536",
+              "text": "shall"
+            },
+            {
+              "id": "w537",
+              "text": "be"
+            },
+            {
+              "id": "w538",
+              "text": "a"
+            },
+            {
+              "id": "w539",
+              "text": "great"
+            },
+            {
+              "id": "w540",
+              "text": "deal"
+            },
+            {
+              "id": "w541",
+              "text": "too"
+            },
+            {
+              "id": "w542",
+              "text": "far"
+            },
+            {
+              "id": "w543",
+              "text": "off"
+            },
+            {
+              "id": "w544",
+              "text": "to"
+            },
+            {
+              "id": "w545",
+              "text": "trouble"
+            },
+            {
+              "id": "w546",
+              "text": "myself"
+            },
+            {
+              "id": "w547",
+              "text": "about"
+            },
+            {
+              "id": "w548",
+              "text": "you:"
+            },
+            {
+              "id": "w549",
+              "text": "you"
+            },
+            {
+              "id": "w550",
+              "text": "must"
+            },
+            {
+              "id": "w551",
+              "text": "do"
+            },
+            {
+              "id": "w552",
+              "text": "the"
+            },
+            {
+              "id": "w553",
+              "text": "best"
+            },
+            {
+              "id": "w554",
+              "text": "you"
+            },
+            {
+              "id": "w555",
+              "text": "can;\u2014but"
+            },
+            {
+              "id": "w556",
+              "text": "I"
+            },
+            {
+              "id": "w557",
+              "text": "must"
+            },
+            {
+              "id": "w558",
+              "text": "be"
+            },
+            {
+              "id": "w559",
+              "text": "kind"
+            },
+            {
+              "id": "w560",
+              "text": "to"
+            },
+            {
+              "id": "w561",
+              "text": "them,'"
+            },
+            {
+              "id": "w562",
+              "text": "thought"
+            },
+            {
+              "id": "w563",
+              "text": "Alice,"
+            },
+            {
+              "id": "w564",
+              "text": "'or"
+            },
+            {
+              "id": "w565",
+              "text": "perhaps"
+            },
+            {
+              "id": "w566",
+              "text": "they"
+            },
+            {
+              "id": "w567",
+              "text": "won't"
+            },
+            {
+              "id": "w568",
+              "text": "walk"
+            },
+            {
+              "id": "w569",
+              "text": "the"
+            },
+            {
+              "id": "w570",
+              "text": "way"
+            },
+            {
+              "id": "w571",
+              "text": "I"
+            },
+            {
+              "id": "w572",
+              "text": "want"
+            },
+            {
+              "id": "w573",
+              "text": "to"
+            },
+            {
+              "id": "w574",
+              "text": "go!"
+            },
+            {
+              "id": "w575",
+              "text": "Let"
+            },
+            {
+              "id": "w576",
+              "text": "me"
+            },
+            {
+              "id": "w577",
+              "text": "see:"
+            },
+            {
+              "id": "w578",
+              "text": "I'll"
+            },
+            {
+              "id": "w579",
+              "text": "give"
+            },
+            {
+              "id": "w580",
+              "text": "them"
+            },
+            {
+              "id": "w581",
+              "text": "a"
+            },
+            {
+              "id": "w582",
+              "text": "new"
+            },
+            {
+              "id": "w583",
+              "text": "pair"
+            },
+            {
+              "id": "w584",
+              "text": "of"
+            },
+            {
+              "id": "w585",
+              "text": "boots"
+            },
+            {
+              "id": "w586",
+              "text": "every"
+            },
+            {
+              "id": "w587",
+              "text": "Christmas.'"
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w588",
+              "text": "And"
+            },
+            {
+              "id": "w589",
+              "text": "she"
+            },
+            {
+              "id": "w590",
+              "text": "went"
+            },
+            {
+              "id": "w591",
+              "text": "on"
+            },
+            {
+              "id": "w592",
+              "text": "planning"
+            },
+            {
+              "id": "w593",
+              "text": "to"
+            },
+            {
+              "id": "w594",
+              "text": "herself"
+            },
+            {
+              "id": "w595",
+              "text": "how"
+            },
+            {
+              "id": "w596",
+              "text": "she"
+            },
+            {
+              "id": "w597",
+              "text": "would"
+            },
+            {
+              "id": "w598",
+              "text": "manage"
+            },
+            {
+              "id": "w599",
+              "text": "it."
+            },
+            {
+              "id": "w600",
+              "text": "'They"
+            },
+            {
+              "id": "w601",
+              "text": "must"
+            },
+            {
+              "id": "w602",
+              "text": "go"
+            },
+            {
+              "id": "w603",
+              "text": "by"
+            },
+            {
+              "id": "w604",
+              "text": "the"
+            },
+            {
+              "id": "w605",
+              "text": "carrier,'"
+            },
+            {
+              "id": "w606",
+              "text": "she"
+            },
+            {
+              "id": "w607",
+              "text": "thought;"
+            },
+            {
+              "id": "w608",
+              "text": "'and"
+            },
+            {
+              "id": "w609",
+              "text": "how"
+            },
+            {
+              "id": "w610",
+              "text": "funny"
+            },
+            {
+              "id": "w611",
+              "text": "it'll"
+            },
+            {
+              "id": "w612",
+              "text": "seem,"
+            },
+            {
+              "id": "w613",
+              "text": "sending"
+            },
+            {
+              "id": "w614",
+              "text": "presents"
+            },
+            {
+              "id": "w615",
+              "text": "to"
+            },
+            {
+              "id": "w616",
+              "text": "one's"
+            },
+            {
+              "id": "w617",
+              "text": "own"
+            },
+            {
+              "id": "w618",
+              "text": "feet!"
+            },
+            {
+              "id": "w619",
+              "text": "And"
+            },
+            {
+              "id": "w620",
+              "text": "how"
+            },
+            {
+              "id": "w621",
+              "text": "odd"
+            },
+            {
+              "id": "w622",
+              "text": "the"
+            },
+            {
+              "id": "w623",
+              "text": "directions"
+            },
+            {
+              "id": "w624",
+              "text": "will"
+            },
+            {
+              "id": "w625",
+              "text": "look!"
+            },
+            {
+              "id": "w626",
+              "text": "Alice's"
+            },
+            {
+              "id": "w627",
+              "text": "Right"
+            },
+            {
+              "id": "w628",
+              "text": "Foot,"
+            },
+            {
+              "id": "w629",
+              "text": "Esq."
+            },
+            {
+              "id": "w630",
+              "text": "Hearthrug,"
+            },
+            {
+              "id": "w631",
+              "text": "near"
+            },
+            {
+              "id": "w632",
+              "text": "the"
+            },
+            {
+              "id": "w633",
+              "text": "Fender,"
+            },
+            {
+              "id": "w634",
+              "text": "(with"
+            },
+            {
+              "id": "w635",
+              "text": "Alice's"
+            },
+            {
+              "id": "w636",
+              "text": "love)."
+            },
+            {
+              "id": "w637",
+              "text": "Oh"
+            },
+            {
+              "id": "w638",
+              "text": "dear,"
+            },
+            {
+              "id": "w639",
+              "text": "what"
+            },
+            {
+              "id": "w640",
+              "text": "nonsense"
+            },
+            {
+              "id": "w641",
+              "text": "I'm"
+            },
+            {
+              "id": "w642",
+              "text": "talking!'"
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w643",
+              "text": "Just"
+            },
+            {
+              "id": "w644",
+              "text": "then"
+            },
+            {
+              "id": "w645",
+              "text": "her"
+            },
+            {
+              "id": "w646",
+              "text": "head"
+            },
+            {
+              "id": "w647",
+              "text": "struck"
+            },
+            {
+              "id": "w648",
+              "text": "against"
+            },
+            {
+              "id": "w649",
+              "text": "the"
+            },
+            {
+              "id": "w650",
+              "text": "roof"
+            },
+            {
+              "id": "w651",
+              "text": "of"
+            },
+            {
+              "id": "w652",
+              "text": "the"
+            },
+            {
+              "id": "w653",
+              "text": "hall:"
+            },
+            {
+              "id": "w654",
+              "text": "in"
+            },
+            {
+              "id": "w655",
+              "text": "fact"
+            },
+            {
+              "id": "w656",
+              "text": "she"
+            },
+            {
+              "id": "w657",
+              "text": "was"
+            },
+            {
+              "id": "w658",
+              "text": "now"
+            },
+            {
+              "id": "w659",
+              "text": "more"
+            },
+            {
+              "id": "w660",
+              "text": "than"
+            },
+            {
+              "id": "w661",
+              "text": "nine"
+            },
+            {
+              "id": "w662",
+              "text": "feet"
+            },
+            {
+              "id": "w663",
+              "text": "high,"
+            },
+            {
+              "id": "w664",
+              "text": "and"
+            },
+            {
+              "id": "w665",
+              "text": "she"
+            },
+            {
+              "id": "w666",
+              "text": "at"
+            },
+            {
+              "id": "w667",
+              "text": "once"
+            },
+            {
+              "id": "w668",
+              "text": "took"
+            },
+            {
+              "id": "w669",
+              "text": "up"
+            },
+            {
+              "id": "w670",
+              "text": "the"
+            },
+            {
+              "id": "w671",
+              "text": "little"
+            },
+            {
+              "id": "w672",
+              "text": "golden"
+            },
+            {
+              "id": "w673",
+              "text": "key"
+            },
+            {
+              "id": "w674",
+              "text": "and"
+            },
+            {
+              "id": "w675",
+              "text": "hurried"
+            },
+            {
+              "id": "w676",
+              "text": "off"
+            },
+            {
+              "id": "w677",
+              "text": "to"
+            },
+            {
+              "id": "w678",
+              "text": "the"
+            },
+            {
+              "id": "w679",
+              "text": "garden"
+            },
+            {
+              "id": "w680",
+              "text": "door."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w681",
+              "text": "Poor"
+            },
+            {
+              "id": "w682",
+              "text": "Alice!"
+            },
+            {
+              "id": "w683",
+              "text": "It"
+            },
+            {
+              "id": "w684",
+              "text": "was"
+            },
+            {
+              "id": "w685",
+              "text": "as"
+            },
+            {
+              "id": "w686",
+              "text": "much"
+            },
+            {
+              "id": "w687",
+              "text": "as"
+            },
+            {
+              "id": "w688",
+              "text": "she"
+            },
+            {
+              "id": "w689",
+              "text": "could"
+            },
+            {
+              "id": "w690",
+              "text": "do,"
+            },
+            {
+              "id": "w691",
+              "text": "lying"
+            },
+            {
+              "id": "w692",
+              "text": "down"
+            },
+            {
+              "id": "w693",
+              "text": "on"
+            },
+            {
+              "id": "w694",
+              "text": "one"
+            },
+            {
+              "id": "w695",
+              "text": "side,"
+            },
+            {
+              "id": "w696",
+              "text": "to"
+            },
+            {
+              "id": "w697",
+              "text": "look"
+            },
+            {
+              "id": "w698",
+              "text": "through"
+            },
+            {
+              "id": "w699",
+              "text": "into"
+            },
+            {
+              "id": "w700",
+              "text": "the"
+            },
+            {
+              "id": "w701",
+              "text": "garden"
+            },
+            {
+              "id": "w702",
+              "text": "with"
+            },
+            {
+              "id": "w703",
+              "text": "one"
+            },
+            {
+              "id": "w704",
+              "text": "eye;"
+            },
+            {
+              "id": "w705",
+              "text": "but"
+            },
+            {
+              "id": "w706",
+              "text": "to"
+            },
+            {
+              "id": "w707",
+              "text": "get"
+            },
+            {
+              "id": "w708",
+              "text": "through"
+            },
+            {
+              "id": "w709",
+              "text": "was"
+            },
+            {
+              "id": "w710",
+              "text": "more"
+            },
+            {
+              "id": "w711",
+              "text": "hopeless"
+            },
+            {
+              "id": "w712",
+              "text": "than"
+            },
+            {
+              "id": "w713",
+              "text": "ever:"
+            },
+            {
+              "id": "w714",
+              "text": "she"
+            },
+            {
+              "id": "w715",
+              "text": "sat"
+            },
+            {
+              "id": "w716",
+              "text": "down"
+            },
+            {
+              "id": "w717",
+              "text": "and"
+            },
+            {
+              "id": "w718",
+              "text": "began"
+            },
+            {
+              "id": "w719",
+              "text": "to"
+            },
+            {
+              "id": "w720",
+              "text": "cry"
+            },
+            {
+              "id": "w721",
+              "text": "again."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w722",
+              "text": "She"
+            },
+            {
+              "id": "w723",
+              "text": "went"
+            },
+            {
+              "id": "w724",
+              "text": "on"
+            },
+            {
+              "id": "w725",
+              "text": "crying"
+            },
+            {
+              "id": "w726",
+              "text": "in"
+            },
+            {
+              "id": "w727",
+              "text": "this"
+            },
+            {
+              "id": "w728",
+              "text": "way"
+            },
+            {
+              "id": "w729",
+              "text": "as"
+            },
+            {
+              "id": "w730",
+              "text": "if"
+            },
+            {
+              "id": "w731",
+              "text": "she"
+            },
+            {
+              "id": "w732",
+              "text": "could,"
+            },
+            {
+              "id": "w733",
+              "text": "shedding"
+            },
+            {
+              "id": "w734",
+              "text": "gallons"
+            },
+            {
+              "id": "w735",
+              "text": "of"
+            },
+            {
+              "id": "w736",
+              "text": "tears,"
+            },
+            {
+              "id": "w737",
+              "text": "until"
+            },
+            {
+              "id": "w738",
+              "text": "there"
+            },
+            {
+              "id": "w739",
+              "text": "was"
+            },
+            {
+              "id": "w740",
+              "text": "a"
+            },
+            {
+              "id": "w741",
+              "text": "large"
+            },
+            {
+              "id": "w742",
+              "text": "pool"
+            },
+            {
+              "id": "w743",
+              "text": "all"
+            },
+            {
+              "id": "w744",
+              "text": "round"
+            },
+            {
+              "id": "w745",
+              "text": "her,"
+            },
+            {
+              "id": "w746",
+              "text": "about"
+            },
+            {
+              "id": "w747",
+              "text": "four"
+            },
+            {
+              "id": "w748",
+              "text": "inches"
+            },
+            {
+              "id": "w749",
+              "text": "deep"
+            },
+            {
+              "id": "w750",
+              "text": "and"
+            },
+            {
+              "id": "w751",
+              "text": "reaching"
+            },
+            {
+              "id": "w752",
+              "text": "half-way"
+            },
+            {
+              "id": "w753",
+              "text": "down"
+            },
+            {
+              "id": "w754",
+              "text": "the"
+            },
+            {
+              "id": "w755",
+              "text": "hall."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w756",
+              "text": "After"
+            },
+            {
+              "id": "w757",
+              "text": "a"
+            },
+            {
+              "id": "w758",
+              "text": "time"
+            },
+            {
+              "id": "w759",
+              "text": "she"
+            },
+            {
+              "id": "w760",
+              "text": "heard"
+            },
+            {
+              "id": "w761",
+              "text": "a"
+            },
+            {
+              "id": "w762",
+              "text": "little"
+            },
+            {
+              "id": "w763",
+              "text": "pattering"
+            },
+            {
+              "id": "w764",
+              "text": "of"
+            },
+            {
+              "id": "w765",
+              "text": "feet"
+            },
+            {
+              "id": "w766",
+              "text": "in"
+            },
+            {
+              "id": "w767",
+              "text": "the"
+            },
+            {
+              "id": "w768",
+              "text": "distance,"
+            },
+            {
+              "id": "w769",
+              "text": "and"
+            },
+            {
+              "id": "w770",
+              "text": "she"
+            },
+            {
+              "id": "w771",
+              "text": "hastily"
+            },
+            {
+              "id": "w772",
+              "text": "dried"
+            },
+            {
+              "id": "w773",
+              "text": "her"
+            },
+            {
+              "id": "w774",
+              "text": "eyes"
+            },
+            {
+              "id": "w775",
+              "text": "to"
+            },
+            {
+              "id": "w776",
+              "text": "see"
+            },
+            {
+              "id": "w777",
+              "text": "what"
+            },
+            {
+              "id": "w778",
+              "text": "was"
+            },
+            {
+              "id": "w779",
+              "text": "coming."
+            },
+            {
+              "id": "w780",
+              "text": "It"
+            },
+            {
+              "id": "w781",
+              "text": "was"
+            },
+            {
+              "id": "w782",
+              "text": "the"
+            },
+            {
+              "id": "w783",
+              "text": "White"
+            },
+            {
+              "id": "w784",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w785",
+              "text": "returning,"
+            },
+            {
+              "id": "w786",
+              "text": "splendidly"
+            },
+            {
+              "id": "w787",
+              "text": "dressed,"
+            },
+            {
+              "id": "w788",
+              "text": "with"
+            },
+            {
+              "id": "w789",
+              "text": "a"
+            },
+            {
+              "id": "w790",
+              "text": "pair"
+            },
+            {
+              "id": "w791",
+              "text": "of"
+            },
+            {
+              "id": "w792",
+              "text": "white"
+            },
+            {
+              "id": "w793",
+              "text": "kid"
+            },
+            {
+              "id": "w794",
+              "text": "gloves"
+            },
+            {
+              "id": "w795",
+              "text": "in"
+            },
+            {
+              "id": "w796",
+              "text": "one"
+            },
+            {
+              "id": "w797",
+              "text": "hand"
+            },
+            {
+              "id": "w798",
+              "text": "and"
+            },
+            {
+              "id": "w799",
+              "text": "a"
+            },
+            {
+              "id": "w800",
+              "text": "large"
+            },
+            {
+              "id": "w801",
+              "text": "fan"
+            },
+            {
+              "id": "w802",
+              "text": "in"
+            },
+            {
+              "id": "w803",
+              "text": "the"
+            },
+            {
+              "id": "w804",
+              "text": "other:"
+            },
+            {
+              "id": "w805",
+              "text": "he"
+            },
+            {
+              "id": "w806",
+              "text": "came"
+            },
+            {
+              "id": "w807",
+              "text": "trotting"
+            },
+            {
+              "id": "w808",
+              "text": "along"
+            },
+            {
+              "id": "w809",
+              "text": "in"
+            },
+            {
+              "id": "w810",
+              "text": "a"
+            },
+            {
+              "id": "w811",
+              "text": "great"
+            },
+            {
+              "id": "w812",
+              "text": "hurry,"
+            },
+            {
+              "id": "w813",
+              "text": "muttering"
+            },
+            {
+              "id": "w814",
+              "text": "to"
+            },
+            {
+              "id": "w815",
+              "text": "himself"
+            },
+            {
+              "id": "w816",
+              "text": "as"
+            },
+            {
+              "id": "w817",
+              "text": "he"
+            },
+            {
+              "id": "w818",
+              "text": "came,"
+            },
+            {
+              "id": "w819",
+              "text": "'Oh!"
+            },
+            {
+              "id": "w820",
+              "text": "the"
+            },
+            {
+              "id": "w821",
+              "text": "Duchess,"
+            },
+            {
+              "id": "w822",
+              "text": "the"
+            },
+            {
+              "id": "w823",
+              "text": "Duchess!"
+            },
+            {
+              "id": "w824",
+              "text": "Oh!"
+            },
+            {
+              "id": "w825",
+              "text": "won't"
+            },
+            {
+              "id": "w826",
+              "text": "she"
+            },
+            {
+              "id": "w827",
+              "text": "be"
+            },
+            {
+              "id": "w828",
+              "text": "savage"
+            },
+            {
+              "id": "w829",
+              "text": "if"
+            },
+            {
+              "id": "w830",
+              "text": "I've"
+            },
+            {
+              "id": "w831",
+              "text": "kept"
+            },
+            {
+              "id": "w832",
+              "text": "her"
+            },
+            {
+              "id": "w833",
+              "text": "waiting!'"
+            },
+            {
+              "id": "w834",
+              "text": "Alice"
+            },
+            {
+              "id": "w835",
+              "text": "felt"
+            },
+            {
+              "id": "w836",
+              "text": "so"
+            },
+            {
+              "id": "w837",
+              "text": "desperate"
+            },
+            {
+              "id": "w838",
+              "text": "that"
+            },
+            {
+              "id": "w839",
+              "text": "she"
+            },
+            {
+              "id": "w840",
+              "text": "was"
+            },
+            {
+              "id": "w841",
+              "text": "ready"
+            },
+            {
+              "id": "w842",
+              "text": "to"
+            },
+            {
+              "id": "w843",
+              "text": "ask"
+            },
+            {
+              "id": "w844",
+              "text": "help"
+            },
+            {
+              "id": "w845",
+              "text": "of"
+            },
+            {
+              "id": "w846",
+              "text": "any"
+            },
+            {
+              "id": "w847",
+              "text": "one;"
+            },
+            {
+              "id": "w848",
+              "text": "so,"
+            },
+            {
+              "id": "w849",
+              "text": "when"
+            },
+            {
+              "id": "w850",
+              "text": "the"
+            },
+            {
+              "id": "w851",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w852",
+              "text": "came"
+            },
+            {
+              "id": "w853",
+              "text": "near"
+            },
+            {
+              "id": "w854",
+              "text": "her,"
+            },
+            {
+              "id": "w855",
+              "text": "she"
+            },
+            {
+              "id": "w856",
+              "text": "began,"
+            },
+            {
+              "id": "w857",
+              "text": "in"
+            },
+            {
+              "id": "w858",
+              "text": "a"
+            },
+            {
+              "id": "w859",
+              "text": "low,"
+            },
+            {
+              "id": "w860",
+              "text": "timid"
+            },
+            {
+              "id": "w861",
+              "text": "voice,"
+            },
+            {
+              "id": "w862",
+              "text": "'If"
+            },
+            {
+              "id": "w863",
+              "text": "you"
+            },
+            {
+              "id": "w864",
+              "text": "please,"
+            },
+            {
+              "id": "w865",
+              "text": "sir\u2014'"
+            },
+            {
+              "id": "w866",
+              "text": "The"
+            },
+            {
+              "id": "w867",
+              "text": "Rabbit"
+            },
+            {
+              "id": "w868",
+              "text": "started"
+            },
+            {
+              "id": "w869",
+              "text": "violently,"
+            },
+            {
+              "id": "w870",
+              "text": "dropped"
+            },
+            {
+              "id": "w871",
+              "text": "the"
+            },
+            {
+              "id": "w872",
+              "text": "white"
+            },
+            {
+              "id": "w873",
+              "text": "kid"
+            },
+            {
+              "id": "w874",
+              "text": "gloves"
+            },
+            {
+              "id": "w875",
+              "text": "and"
+            },
+            {
+              "id": "w876",
+              "text": "the"
+            },
+            {
+              "id": "w877",
+              "text": "fan,"
+            },
+            {
+              "id": "w878",
+              "text": "and"
+            },
+            {
+              "id": "w879",
+              "text": "skurried"
+            },
+            {
+              "id": "w880",
+              "text": "away"
+            },
+            {
+              "id": "w881",
+              "text": "into"
+            },
+            {
+              "id": "w882",
+              "text": "the"
+            },
+            {
+              "id": "w883",
+              "text": "darkness"
+            },
+            {
+              "id": "w884",
+              "text": "as"
+            },
+            {
+              "id": "w885",
+              "text": "hard"
+            },
+            {
+              "id": "w886",
+              "text": "as"
+            },
+            {
+              "id": "w887",
+              "text": "he"
+            },
+            {
+              "id": "w888",
+              "text": "could"
+            },
+            {
+              "id": "w889",
+              "text": "go."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 3: A Caucus-Race and a Long Tale",
+      "paragraphs": [
+        {
+          "words": [
+            {
+              "id": "w890",
+              "text": "They"
+            },
+            {
+              "id": "w891",
+              "text": "were"
+            },
+            {
+              "id": "w892",
+              "text": "indeed"
+            },
+            {
+              "id": "w893",
+              "text": "a"
+            },
+            {
+              "id": "w894",
+              "text": "queer-looking"
+            },
+            {
+              "id": "w895",
+              "text": "party"
+            },
+            {
+              "id": "w896",
+              "text": "that"
+            },
+            {
+              "id": "w897",
+              "text": "assembled"
+            },
+            {
+              "id": "w898",
+              "text": "on"
+            },
+            {
+              "id": "w899",
+              "text": "the"
+            },
+            {
+              "id": "w900",
+              "text": "bank\u2014the"
+            },
+            {
+              "id": "w901",
+              "text": "birds"
+            },
+            {
+              "id": "w902",
+              "text": "with"
+            },
+            {
+              "id": "w903",
+              "text": "draggled"
+            },
+            {
+              "id": "w904",
+              "text": "feathers,"
+            },
+            {
+              "id": "w905",
+              "text": "the"
+            },
+            {
+              "id": "w906",
+              "text": "animals"
+            },
+            {
+              "id": "w907",
+              "text": "with"
+            },
+            {
+              "id": "w908",
+              "text": "their"
+            },
+            {
+              "id": "w909",
+              "text": "fur"
+            },
+            {
+              "id": "w910",
+              "text": "clinging"
+            },
+            {
+              "id": "w911",
+              "text": "close"
+            },
+            {
+              "id": "w912",
+              "text": "to"
+            },
+            {
+              "id": "w913",
+              "text": "them,"
+            },
+            {
+              "id": "w914",
+              "text": "and"
+            },
+            {
+              "id": "w915",
+              "text": "all"
+            },
+            {
+              "id": "w916",
+              "text": "dripping"
+            },
+            {
+              "id": "w917",
+              "text": "wet,"
+            },
+            {
+              "id": "w918",
+              "text": "cross,"
+            },
+            {
+              "id": "w919",
+              "text": "and"
+            },
+            {
+              "id": "w920",
+              "text": "uncomfortable."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w921",
+              "text": "The"
+            },
+            {
+              "id": "w922",
+              "text": "first"
+            },
+            {
+              "id": "w923",
+              "text": "question"
+            },
+            {
+              "id": "w924",
+              "text": "of"
+            },
+            {
+              "id": "w925",
+              "text": "course"
+            },
+            {
+              "id": "w926",
+              "text": "was,"
+            },
+            {
+              "id": "w927",
+              "text": "how"
+            },
+            {
+              "id": "w928",
+              "text": "to"
+            },
+            {
+              "id": "w929",
+              "text": "get"
+            },
+            {
+              "id": "w930",
+              "text": "dry"
+            },
+            {
+              "id": "w931",
+              "text": "again:"
+            },
+            {
+              "id": "w932",
+              "text": "they"
+            },
+            {
+              "id": "w933",
+              "text": "had"
+            },
+            {
+              "id": "w934",
+              "text": "a"
+            },
+            {
+              "id": "w935",
+              "text": "consultation"
+            },
+            {
+              "id": "w936",
+              "text": "about"
+            },
+            {
+              "id": "w937",
+              "text": "this,"
+            },
+            {
+              "id": "w938",
+              "text": "and"
+            },
+            {
+              "id": "w939",
+              "text": "after"
+            },
+            {
+              "id": "w940",
+              "text": "a"
+            },
+            {
+              "id": "w941",
+              "text": "few"
+            },
+            {
+              "id": "w942",
+              "text": "minutes"
+            },
+            {
+              "id": "w943",
+              "text": "it"
+            },
+            {
+              "id": "w944",
+              "text": "seemed"
+            },
+            {
+              "id": "w945",
+              "text": "quite"
+            },
+            {
+              "id": "w946",
+              "text": "natural"
+            },
+            {
+              "id": "w947",
+              "text": "to"
+            },
+            {
+              "id": "w948",
+              "text": "Alice"
+            },
+            {
+              "id": "w949",
+              "text": "to"
+            },
+            {
+              "id": "w950",
+              "text": "find"
+            },
+            {
+              "id": "w951",
+              "text": "herself"
+            },
+            {
+              "id": "w952",
+              "text": "talking"
+            },
+            {
+              "id": "w953",
+              "text": "familiarly"
+            },
+            {
+              "id": "w954",
+              "text": "with"
+            },
+            {
+              "id": "w955",
+              "text": "them,"
+            },
+            {
+              "id": "w956",
+              "text": "as"
+            },
+            {
+              "id": "w957",
+              "text": "if"
+            },
+            {
+              "id": "w958",
+              "text": "she"
+            },
+            {
+              "id": "w959",
+              "text": "had"
+            },
+            {
+              "id": "w960",
+              "text": "known"
+            },
+            {
+              "id": "w961",
+              "text": "them"
+            },
+            {
+              "id": "w962",
+              "text": "all"
+            },
+            {
+              "id": "w963",
+              "text": "her"
+            },
+            {
+              "id": "w964",
+              "text": "life."
+            },
+            {
+              "id": "w965",
+              "text": "Indeed,"
+            },
+            {
+              "id": "w966",
+              "text": "she"
+            },
+            {
+              "id": "w967",
+              "text": "had"
+            },
+            {
+              "id": "w968",
+              "text": "quite"
+            },
+            {
+              "id": "w969",
+              "text": "a"
+            },
+            {
+              "id": "w970",
+              "text": "long"
+            },
+            {
+              "id": "w971",
+              "text": "argument"
+            },
+            {
+              "id": "w972",
+              "text": "with"
+            },
+            {
+              "id": "w973",
+              "text": "the"
+            },
+            {
+              "id": "w974",
+              "text": "Lory,"
+            },
+            {
+              "id": "w975",
+              "text": "who"
+            },
+            {
+              "id": "w976",
+              "text": "at"
+            },
+            {
+              "id": "w977",
+              "text": "last"
+            },
+            {
+              "id": "w978",
+              "text": "turned"
+            },
+            {
+              "id": "w979",
+              "text": "sulky,"
+            },
+            {
+              "id": "w980",
+              "text": "and"
+            },
+            {
+              "id": "w981",
+              "text": "would"
+            },
+            {
+              "id": "w982",
+              "text": "only"
+            },
+            {
+              "id": "w983",
+              "text": "say,"
+            },
+            {
+              "id": "w984",
+              "text": "'I"
+            },
+            {
+              "id": "w985",
+              "text": "am"
+            },
+            {
+              "id": "w986",
+              "text": "older"
+            },
+            {
+              "id": "w987",
+              "text": "than"
+            },
+            {
+              "id": "w988",
+              "text": "you,"
+            },
+            {
+              "id": "w989",
+              "text": "and"
+            },
+            {
+              "id": "w990",
+              "text": "must"
+            },
+            {
+              "id": "w991",
+              "text": "know"
+            },
+            {
+              "id": "w992",
+              "text": "better';"
+            },
+            {
+              "id": "w993",
+              "text": "and"
+            },
+            {
+              "id": "w994",
+              "text": "this"
+            },
+            {
+              "id": "w995",
+              "text": "Alice"
+            },
+            {
+              "id": "w996",
+              "text": "would"
+            },
+            {
+              "id": "w997",
+              "text": "not"
+            },
+            {
+              "id": "w998",
+              "text": "admit"
+            },
+            {
+              "id": "w999",
+              "text": "without"
+            },
+            {
+              "id": "w1000",
+              "text": "knowing"
+            },
+            {
+              "id": "w1001",
+              "text": "how"
+            },
+            {
+              "id": "w1002",
+              "text": "old"
+            },
+            {
+              "id": "w1003",
+              "text": "it"
+            },
+            {
+              "id": "w1004",
+              "text": "was,"
+            },
+            {
+              "id": "w1005",
+              "text": "and"
+            },
+            {
+              "id": "w1006",
+              "text": "as"
+            },
+            {
+              "id": "w1007",
+              "text": "the"
+            },
+            {
+              "id": "w1008",
+              "text": "Lory"
+            },
+            {
+              "id": "w1009",
+              "text": "positively"
+            },
+            {
+              "id": "w1010",
+              "text": "refused"
+            },
+            {
+              "id": "w1011",
+              "text": "to"
+            },
+            {
+              "id": "w1012",
+              "text": "tell"
+            },
+            {
+              "id": "w1013",
+              "text": "its"
+            },
+            {
+              "id": "w1014",
+              "text": "age,"
+            },
+            {
+              "id": "w1015",
+              "text": "there"
+            },
+            {
+              "id": "w1016",
+              "text": "was"
+            },
+            {
+              "id": "w1017",
+              "text": "no"
+            },
+            {
+              "id": "w1018",
+              "text": "more"
+            },
+            {
+              "id": "w1019",
+              "text": "to"
+            },
+            {
+              "id": "w1020",
+              "text": "be"
+            },
+            {
+              "id": "w1021",
+              "text": "said."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1022",
+              "text": "At"
+            },
+            {
+              "id": "w1023",
+              "text": "last"
+            },
+            {
+              "id": "w1024",
+              "text": "the"
+            },
+            {
+              "id": "w1025",
+              "text": "Mouse,"
+            },
+            {
+              "id": "w1026",
+              "text": "who"
+            },
+            {
+              "id": "w1027",
+              "text": "seemed"
+            },
+            {
+              "id": "w1028",
+              "text": "to"
+            },
+            {
+              "id": "w1029",
+              "text": "be"
+            },
+            {
+              "id": "w1030",
+              "text": "a"
+            },
+            {
+              "id": "w1031",
+              "text": "person"
+            },
+            {
+              "id": "w1032",
+              "text": "of"
+            },
+            {
+              "id": "w1033",
+              "text": "authority"
+            },
+            {
+              "id": "w1034",
+              "text": "among"
+            },
+            {
+              "id": "w1035",
+              "text": "them,"
+            },
+            {
+              "id": "w1036",
+              "text": "called"
+            },
+            {
+              "id": "w1037",
+              "text": "out,"
+            },
+            {
+              "id": "w1038",
+              "text": "'Sit"
+            },
+            {
+              "id": "w1039",
+              "text": "down,"
+            },
+            {
+              "id": "w1040",
+              "text": "all"
+            },
+            {
+              "id": "w1041",
+              "text": "of"
+            },
+            {
+              "id": "w1042",
+              "text": "you,"
+            },
+            {
+              "id": "w1043",
+              "text": "and"
+            },
+            {
+              "id": "w1044",
+              "text": "listen"
+            },
+            {
+              "id": "w1045",
+              "text": "to"
+            },
+            {
+              "id": "w1046",
+              "text": "me!"
+            },
+            {
+              "id": "w1047",
+              "text": "I'll"
+            },
+            {
+              "id": "w1048",
+              "text": "soon"
+            },
+            {
+              "id": "w1049",
+              "text": "make"
+            },
+            {
+              "id": "w1050",
+              "text": "you"
+            },
+            {
+              "id": "w1051",
+              "text": "dry"
+            },
+            {
+              "id": "w1052",
+              "text": "enough!'"
+            },
+            {
+              "id": "w1053",
+              "text": "They"
+            },
+            {
+              "id": "w1054",
+              "text": "all"
+            },
+            {
+              "id": "w1055",
+              "text": "sat"
+            },
+            {
+              "id": "w1056",
+              "text": "down"
+            },
+            {
+              "id": "w1057",
+              "text": "at"
+            },
+            {
+              "id": "w1058",
+              "text": "once,"
+            },
+            {
+              "id": "w1059",
+              "text": "in"
+            },
+            {
+              "id": "w1060",
+              "text": "a"
+            },
+            {
+              "id": "w1061",
+              "text": "large"
+            },
+            {
+              "id": "w1062",
+              "text": "ring,"
+            },
+            {
+              "id": "w1063",
+              "text": "with"
+            },
+            {
+              "id": "w1064",
+              "text": "the"
+            },
+            {
+              "id": "w1065",
+              "text": "Mouse"
+            },
+            {
+              "id": "w1066",
+              "text": "in"
+            },
+            {
+              "id": "w1067",
+              "text": "the"
+            },
+            {
+              "id": "w1068",
+              "text": "middle."
+            },
+            {
+              "id": "w1069",
+              "text": "Alice"
+            },
+            {
+              "id": "w1070",
+              "text": "kept"
+            },
+            {
+              "id": "w1071",
+              "text": "her"
+            },
+            {
+              "id": "w1072",
+              "text": "eyes"
+            },
+            {
+              "id": "w1073",
+              "text": "anxiously"
+            },
+            {
+              "id": "w1074",
+              "text": "fixed"
+            },
+            {
+              "id": "w1075",
+              "text": "on"
+            },
+            {
+              "id": "w1076",
+              "text": "it,"
+            },
+            {
+              "id": "w1077",
+              "text": "for"
+            },
+            {
+              "id": "w1078",
+              "text": "she"
+            },
+            {
+              "id": "w1079",
+              "text": "felt"
+            },
+            {
+              "id": "w1080",
+              "text": "sure"
+            },
+            {
+              "id": "w1081",
+              "text": "she"
+            },
+            {
+              "id": "w1082",
+              "text": "would"
+            },
+            {
+              "id": "w1083",
+              "text": "catch"
+            },
+            {
+              "id": "w1084",
+              "text": "a"
+            },
+            {
+              "id": "w1085",
+              "text": "bad"
+            },
+            {
+              "id": "w1086",
+              "text": "cold"
+            },
+            {
+              "id": "w1087",
+              "text": "if"
+            },
+            {
+              "id": "w1088",
+              "text": "she"
+            },
+            {
+              "id": "w1089",
+              "text": "did"
+            },
+            {
+              "id": "w1090",
+              "text": "not"
+            },
+            {
+              "id": "w1091",
+              "text": "get"
+            },
+            {
+              "id": "w1092",
+              "text": "dry"
+            },
+            {
+              "id": "w1093",
+              "text": "very"
+            },
+            {
+              "id": "w1094",
+              "text": "soon."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1095",
+              "text": "'Ahem!'"
+            },
+            {
+              "id": "w1096",
+              "text": "said"
+            },
+            {
+              "id": "w1097",
+              "text": "the"
+            },
+            {
+              "id": "w1098",
+              "text": "Mouse"
+            },
+            {
+              "id": "w1099",
+              "text": "with"
+            },
+            {
+              "id": "w1100",
+              "text": "an"
+            },
+            {
+              "id": "w1101",
+              "text": "important"
+            },
+            {
+              "id": "w1102",
+              "text": "air,"
+            },
+            {
+              "id": "w1103",
+              "text": "'are"
+            },
+            {
+              "id": "w1104",
+              "text": "you"
+            },
+            {
+              "id": "w1105",
+              "text": "all"
+            },
+            {
+              "id": "w1106",
+              "text": "ready?"
+            },
+            {
+              "id": "w1107",
+              "text": "This"
+            },
+            {
+              "id": "w1108",
+              "text": "is"
+            },
+            {
+              "id": "w1109",
+              "text": "the"
+            },
+            {
+              "id": "w1110",
+              "text": "driest"
+            },
+            {
+              "id": "w1111",
+              "text": "thing"
+            },
+            {
+              "id": "w1112",
+              "text": "I"
+            },
+            {
+              "id": "w1113",
+              "text": "know."
+            },
+            {
+              "id": "w1114",
+              "text": "Silence"
+            },
+            {
+              "id": "w1115",
+              "text": "all"
+            },
+            {
+              "id": "w1116",
+              "text": "round,"
+            },
+            {
+              "id": "w1117",
+              "text": "if"
+            },
+            {
+              "id": "w1118",
+              "text": "you"
+            },
+            {
+              "id": "w1119",
+              "text": "please!"
+            },
+            {
+              "id": "w1120",
+              "text": "\"William"
+            },
+            {
+              "id": "w1121",
+              "text": "the"
+            },
+            {
+              "id": "w1122",
+              "text": "Conqueror,"
+            },
+            {
+              "id": "w1123",
+              "text": "whose"
+            },
+            {
+              "id": "w1124",
+              "text": "cause"
+            },
+            {
+              "id": "w1125",
+              "text": "was"
+            },
+            {
+              "id": "w1126",
+              "text": "favoured"
+            },
+            {
+              "id": "w1127",
+              "text": "by"
+            },
+            {
+              "id": "w1128",
+              "text": "the"
+            },
+            {
+              "id": "w1129",
+              "text": "Pope,"
+            },
+            {
+              "id": "w1130",
+              "text": "was"
+            },
+            {
+              "id": "w1131",
+              "text": "soon"
+            },
+            {
+              "id": "w1132",
+              "text": "submitted"
+            },
+            {
+              "id": "w1133",
+              "text": "to"
+            },
+            {
+              "id": "w1134",
+              "text": "by"
+            },
+            {
+              "id": "w1135",
+              "text": "the"
+            },
+            {
+              "id": "w1136",
+              "text": "English,"
+            },
+            {
+              "id": "w1137",
+              "text": "who"
+            },
+            {
+              "id": "w1138",
+              "text": "wanted"
+            },
+            {
+              "id": "w1139",
+              "text": "leaders,"
+            },
+            {
+              "id": "w1140",
+              "text": "and"
+            },
+            {
+              "id": "w1141",
+              "text": "had"
+            },
+            {
+              "id": "w1142",
+              "text": "been"
+            },
+            {
+              "id": "w1143",
+              "text": "of"
+            },
+            {
+              "id": "w1144",
+              "text": "late"
+            },
+            {
+              "id": "w1145",
+              "text": "much"
+            },
+            {
+              "id": "w1146",
+              "text": "accustomed"
+            },
+            {
+              "id": "w1147",
+              "text": "to"
+            },
+            {
+              "id": "w1148",
+              "text": "usurpation"
+            },
+            {
+              "id": "w1149",
+              "text": "and"
+            },
+            {
+              "id": "w1150",
+              "text": "conquest."
+            },
+            {
+              "id": "w1151",
+              "text": "Edwin"
+            },
+            {
+              "id": "w1152",
+              "text": "and"
+            },
+            {
+              "id": "w1153",
+              "text": "Morcar,"
+            },
+            {
+              "id": "w1154",
+              "text": "the"
+            },
+            {
+              "id": "w1155",
+              "text": "earls"
+            },
+            {
+              "id": "w1156",
+              "text": "of"
+            },
+            {
+              "id": "w1157",
+              "text": "Mercia"
+            },
+            {
+              "id": "w1158",
+              "text": "and"
+            },
+            {
+              "id": "w1159",
+              "text": "Northumbria\u2014\"'"
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1160",
+              "text": "'Ugh!'"
+            },
+            {
+              "id": "w1161",
+              "text": "said"
+            },
+            {
+              "id": "w1162",
+              "text": "the"
+            },
+            {
+              "id": "w1163",
+              "text": "Lory,"
+            },
+            {
+              "id": "w1164",
+              "text": "with"
+            },
+            {
+              "id": "w1165",
+              "text": "a"
+            },
+            {
+              "id": "w1166",
+              "text": "shiver."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1167",
+              "text": "'I"
+            },
+            {
+              "id": "w1168",
+              "text": "beg"
+            },
+            {
+              "id": "w1169",
+              "text": "your"
+            },
+            {
+              "id": "w1170",
+              "text": "pardon!'"
+            },
+            {
+              "id": "w1171",
+              "text": "said"
+            },
+            {
+              "id": "w1172",
+              "text": "the"
+            },
+            {
+              "id": "w1173",
+              "text": "Mouse,"
+            },
+            {
+              "id": "w1174",
+              "text": "frowning,"
+            },
+            {
+              "id": "w1175",
+              "text": "but"
+            },
+            {
+              "id": "w1176",
+              "text": "very"
+            },
+            {
+              "id": "w1177",
+              "text": "politely:"
+            },
+            {
+              "id": "w1178",
+              "text": "'Did"
+            },
+            {
+              "id": "w1179",
+              "text": "you"
+            },
+            {
+              "id": "w1180",
+              "text": "speak?'"
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1181",
+              "text": "'Not"
+            },
+            {
+              "id": "w1182",
+              "text": "I!'"
+            },
+            {
+              "id": "w1183",
+              "text": "said"
+            },
+            {
+              "id": "w1184",
+              "text": "the"
+            },
+            {
+              "id": "w1185",
+              "text": "Lory"
+            },
+            {
+              "id": "w1186",
+              "text": "hastily."
+            }
+          ]
+        },
+        {
+          "words": [
+            {
+              "id": "w1187",
+              "text": "'I"
+            },
+            {
+              "id": "w1188",
+              "text": "thought"
+            },
+            {
+              "id": "w1189",
+              "text": "you"
+            },
+            {
+              "id": "w1190",
+              "text": "did,'"
+            },
+            {
+              "id": "w1191",
+              "text": "said"
+            },
+            {
+              "id": "w1192",
+              "text": "the"
+            },
+            {
+              "id": "w1193",
+              "text": "Mouse."
+            },
+            {
+              "id": "w1194",
+              "text": "'\u2014I"
+            },
+            {
+              "id": "w1195",
+              "text": "proceed."
+            },
+            {
+              "id": "w1196",
+              "text": "\"Edwin"
+            },
+            {
+              "id": "w1197",
+              "text": "and"
+            },
+            {
+              "id": "w1198",
+              "text": "Morcar,"
+            },
+            {
+              "id": "w1199",
+              "text": "the"
+            },
+            {
+              "id": "w1200",
+              "text": "earls"
+            },
+            {
+              "id": "w1201",
+              "text": "of"
+            },
+            {
+              "id": "w1202",
+              "text": "Mercia"
+            },
+            {
+              "id": "w1203",
+              "text": "and"
+            },
+            {
+              "id": "w1204",
+              "text": "Northumbria,"
+            },
+            {
+              "id": "w1205",
+              "text": "declared"
+            },
+            {
+              "id": "w1206",
+              "text": "for"
+            },
+            {
+              "id": "w1207",
+              "text": "him:"
+            },
+            {
+              "id": "w1208",
+              "text": "and"
+            },
+            {
+              "id": "w1209",
+              "text": "even"
+            },
+            {
+              "id": "w1210",
+              "text": "Stigand,"
+            },
+            {
+              "id": "w1211",
+              "text": "the"
+            },
+            {
+              "id": "w1212",
+              "text": "patriotic"
+            },
+            {
+              "id": "w1213",
+              "text": "archbishop"
+            },
+            {
+              "id": "w1214",
+              "text": "of"
+            },
+            {
+              "id": "w1215",
+              "text": "Canterbury,"
+            },
+            {
+              "id": "w1216",
+              "text": "found"
+            },
+            {
+              "id": "w1217",
+              "text": "it"
+            },
+            {
+              "id": "w1218",
+              "text": "advisable\u2014\"'"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
