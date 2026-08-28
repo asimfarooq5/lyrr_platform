@@ -2,13 +2,12 @@
 /// 
 /// HTTP client for communicating with the LYRR backend API
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import '../../core/config.dart';
-import '../../core/constants.dart';
-import '../models/user_model.dart';
 import 'auth_service.dart';
 
 /// Custom exception for API errors
@@ -60,11 +59,9 @@ class ApiClient {
   }
 
   http.Client _createClient() {
-    final ioClient = HttpClient()
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
-        // In production, validate certificates properly
-        return !AppConfig.enableDRM; // Only accept bad certs in dev
-      };
+    // Always validate TLS certificates. Self-signed certs should be handled
+    // by installing the CA, never by disabling verification in app code.
+    final ioClient = HttpClient();
     return IOClient(ioClient);
   }
 
@@ -84,6 +81,52 @@ class ApiClient {
     }
 
     return headers;
+  }
+
+  /// Extract host from URL for error messages
+  String _extractHost(String path) {
+    try {
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+      return uri.host;
+    } catch (_) {
+      return 'unknown';
+    }
+  }
+
+  /// Handle SocketException with descriptive message
+  Never _throwSocketError(SocketException e, {String path = '', String method = ''}) {
+    final host = _extractHost(path);
+    final osError = e.osError?.message ?? '';
+    
+    if (e.message.contains('Connection refused') || osError.contains('Connection refused')) {
+      throw ApiException(
+        'Cannot connect to server at $host. Make sure the backend is running.',
+        statusCode: 0,
+      );
+    }
+    if (e.message.contains('Connection timed out') || osError.contains('timed out')) {
+      throw ApiException(
+        'Connection to server at $host timed out. Check your network or server status.',
+        statusCode: 0,
+      );
+    }
+    if (e.message.contains('No address') || osError.contains('No address')) {
+      throw ApiException(
+        'Could not resolve server address: $host. Check the API URL in settings.',
+        statusCode: 0,
+      );
+    }
+    if (e.message.contains('reset by peer') || osError.contains('reset')) {
+      throw ApiException(
+        'Connection to server was interrupted. The server may have restarted.',
+        statusCode: 0,
+      );
+    }
+    
+    throw ApiException(
+      'Network error: ${e.message}. Server: $host. $osError',
+      statusCode: 0,
+    );
   }
 
   /// Make GET request
@@ -106,11 +149,28 @@ class ApiClient {
 
       return _handleResponse<T>(response, parser);
     } on SocketException catch (e) {
-      throw ApiException('No internet connection', statusCode: 0);
+      _throwSocketError(e, path: path, method: 'GET');
+    } on TimeoutException catch (_) {
+      throw ApiException(
+        'Request timed out after ${AppConfig.apiTimeout.inSeconds}s. '
+        'Server: ${_extractHost(path)}. Check that the backend is running and accessible.',
+        statusCode: 0,
+      );
     } on FormatException catch (e) {
-      throw ApiException('Invalid response format', statusCode: 0);
+      throw ApiException(
+        'Received unexpected data from server. ${e.message}',
+        statusCode: 0,
+      );
+    } on HttpException catch (e) {
+      throw ApiException(
+        'HTTP error: ${e.message}',
+        statusCode: 0,
+      );
     } catch (e) {
-      throw ApiException('Request failed: $e', statusCode: 0);
+      throw ApiException(
+        'Unexpected error: ${e.runtimeType}. ${e.toString().length > 200 ? e.toString().substring(0, 200) : e}',
+        statusCode: 0,
+      );
     }
   }
 
@@ -135,9 +195,22 @@ class ApiClient {
 
       return _handleResponse<T>(response, parser);
     } on SocketException catch (e) {
-      throw ApiException('No internet connection', statusCode: 0);
+      _throwSocketError(e, path: path, method: 'POST');
+    } on TimeoutException catch (_) {
+      throw ApiException(
+        'Request timed out after ${AppConfig.apiTimeout.inSeconds}s. '
+        'Server: ${_extractHost(path)}. Check that the backend is running and accessible.',
+        statusCode: 0,
+      );
+    } on FormatException catch (e) {
+      throw ApiException('Received unexpected data from server. ${e.message}', statusCode: 0);
+    } on HttpException catch (e) {
+      throw ApiException('HTTP error: ${e.message}', statusCode: 0);
     } catch (e) {
-      throw ApiException('Request failed: $e', statusCode: 0);
+      throw ApiException(
+        'Unexpected error: ${e.runtimeType}. ${e.toString().length > 200 ? e.toString().substring(0, 200) : e}',
+        statusCode: 0,
+      );
     }
   }
 
@@ -162,9 +235,22 @@ class ApiClient {
 
       return _handleResponse<T>(response, parser);
     } on SocketException catch (e) {
-      throw ApiException('No internet connection', statusCode: 0);
+      _throwSocketError(e, path: path, method: 'PUT');
+    } on TimeoutException catch (_) {
+      throw ApiException(
+        'Request timed out after ${AppConfig.apiTimeout.inSeconds}s. '
+        'Server: ${_extractHost(path)}. Check that the backend is running and accessible.',
+        statusCode: 0,
+      );
+    } on FormatException catch (e) {
+      throw ApiException('Received unexpected data from server. ${e.message}', statusCode: 0);
+    } on HttpException catch (e) {
+      throw ApiException('HTTP error: ${e.message}', statusCode: 0);
     } catch (e) {
-      throw ApiException('Request failed: $e', statusCode: 0);
+      throw ApiException(
+        'Unexpected error: ${e.runtimeType}. ${e.toString().length > 200 ? e.toString().substring(0, 200) : e}',
+        statusCode: 0,
+      );
     }
   }
 
@@ -184,9 +270,22 @@ class ApiClient {
 
       return _handleResponse<T>(response, parser);
     } on SocketException catch (e) {
-      throw ApiException('No internet connection', statusCode: 0);
+      _throwSocketError(e, path: path, method: 'DELETE');
+    } on TimeoutException catch (_) {
+      throw ApiException(
+        'Request timed out after ${AppConfig.apiTimeout.inSeconds}s. '
+        'Server: ${_extractHost(path)}. Check that the backend is running and accessible.',
+        statusCode: 0,
+      );
+    } on FormatException catch (e) {
+      throw ApiException('Received unexpected data from server. ${e.message}', statusCode: 0);
+    } on HttpException catch (e) {
+      throw ApiException('HTTP error: ${e.message}', statusCode: 0);
     } catch (e) {
-      throw ApiException('Request failed: $e', statusCode: 0);
+      throw ApiException(
+        'Unexpected error: ${e.runtimeType}. ${e.toString().length > 200 ? e.toString().substring(0, 200) : e}',
+        statusCode: 0,
+      );
     }
   }
 
@@ -198,7 +297,6 @@ class ApiClient {
     final statusCode = response.statusCode;
     
     if (statusCode >= 200 && statusCode < 300) {
-      // Success
       if (response.body.isEmpty) {
         return ApiResponse.success(null as T, statusCode: statusCode);
       }
@@ -210,21 +308,52 @@ class ApiClient {
       final parsedData = parser != null ? parser(data) : (data is T ? data : data as T);
       return ApiResponse.success(parsedData, statusCode: statusCode);
     } else if (statusCode == 401) {
-      // Get actual error from API
       final error = _parseError(response.body);
-      final msg = error['detail'] ?? error['message'] ?? 'Incorrect email or password';
+      final msg = error['detail'] ?? error['message'] ?? 'Session expired. Please login again.';
       throw ApiException(msg, statusCode: 401);
-    } else if (statusCode >= 400 && statusCode < 500) {
-      // Client error
+    } else if (statusCode == 403) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['message'] ?? 'Request failed',
+        error['detail'] ?? error['message'] ?? 'Access denied',
+        statusCode: 403,
+      );
+    } else if (statusCode == 404) {
+      final error = _parseError(response.body);
+      throw ApiException(
+        error['detail'] ?? error['message'] ?? 'Resource not found',
+        statusCode: 404,
+      );
+    } else if (statusCode == 422) {
+      final error = _parseError(response.body);
+      final detail = error['detail'];
+      // Append field-level errors
+      String msg;
+      if (detail is List) {
+        final fieldErrors = detail.take(2).map((e) {
+          final field = e['field'] ?? e['loc']?.join('.') ?? 'unknown';
+          final message = e['message'] ?? e['msg'] ?? 'invalid';
+          return '$field: $message';
+        }).join('; ');
+        msg = 'Validation failed: $fieldErrors';
+      } else {
+        msg = error['detail'] ?? 'Invalid data submitted';
+      }
+      throw ApiException(msg, statusCode: 422, errors: error['errors']);
+    } else if (statusCode >= 400 && statusCode < 500) {
+      final error = _parseError(response.body);
+      throw ApiException(
+        error['detail'] ?? error['message'] ?? 'Request failed',
         statusCode: statusCode,
         errors: error['errors'],
       );
+    } else if (statusCode >= 500) {
+      final error = _parseError(response.body);
+      throw ApiException(
+        error['detail'] ?? 'Server error. Please try again later.',
+        statusCode: statusCode,
+      );
     } else {
-      // Server error
-      throw ApiException('Server error. Please try again later.', statusCode: statusCode);
+      throw ApiException('Unexpected response (status: $statusCode)', statusCode: statusCode);
     }
   }
 

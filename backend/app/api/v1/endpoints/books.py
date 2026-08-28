@@ -43,10 +43,12 @@ async def list_books(
         query = query.where(Book.is_featured == True)
     
     if search:
+        # Escape LIKE wildcards so user input is matched literally
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         search_filter = or_(
-            Book.title.ilike(f"%{search}%"),
-            Book.author.ilike(f"%{search}%"),
-            Book.description.ilike(f"%{search}%")
+            Book.title.ilike(f"%{escaped}%", escape="\\"),
+            Book.author.ilike(f"%{escaped}%", escape="\\"),
+            Book.description.ilike(f"%{escaped}%", escape="\\")
         )
         query = query.where(search_filter)
     
@@ -129,16 +131,17 @@ async def get_book_content(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get book text content (chapters and words)"""
-    # Check if user has access
-    user_book_result = await db.execute(
-        select(UserBook).where(
-            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+    # Check if user has access (bypassable for MVP/demo)
+    if not settings.BYPASS_LIBRARY_PERMISSIONS:
+        user_book_result = await db.execute(
+            select(UserBook).where(
+                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+            )
         )
-    )
-    user_book = user_book_result.scalar_one_or_none()
-    
-    if not user_book and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Book not purchased")
+        user_book = user_book_result.scalar_one_or_none()
+        
+        if not user_book and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Book not purchased")
     
     # Get content
     result = await db.execute(
@@ -167,16 +170,17 @@ async def get_book_sync(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get book synchronization data (word timings)"""
-    # Check access
-    user_book_result = await db.execute(
-        select(UserBook).where(
-            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+    # Check access (bypassable for MVP/demo)
+    if not settings.BYPASS_LIBRARY_PERMISSIONS:
+        user_book_result = await db.execute(
+            select(UserBook).where(
+                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+            )
         )
-    )
-    user_book = user_book_result.scalar_one_or_none()
-    
-    if not user_book and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Book not purchased")
+        user_book = user_book_result.scalar_one_or_none()
+        
+        if not user_book and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Book not purchased")
     
     # Get sync data from chapters
     result = await db.execute(
@@ -213,19 +217,22 @@ async def get_license(
         except:
             pass
     
-    # Verify user has book
-    result = await db.execute(
-        select(UserBook).where(
-            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+    # Verify user has book (bypassable for MVP/demo)
+    user_book = None
+    if not settings.BYPASS_LIBRARY_PERMISSIONS:
+        result = await db.execute(
+            select(UserBook).where(
+                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+            )
         )
-    )
-    user_book = result.scalar_one_or_none()
-    
-    if not user_book:
-        raise HTTPException(status_code=403, detail="Book not purchased")
-    
-    if user_book.expires_at and user_book.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=403, detail="License expired")
+        user_book = result.scalar_one_or_none()
+        
+        if not user_book:
+            raise HTTPException(status_code=403, detail="Book not purchased")
+        
+        from datetime import datetime, timezone
+        if user_book.expires_at and user_book.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=403, detail="License expired")
     
     license_key = generate_drm_key(book_id, current_user.id, device_id or "unknown")
     
@@ -238,11 +245,12 @@ async def get_license(
     audio_url = media.audio_url if media else None
     # If relative URL, make it absolute
     if audio_url and audio_url.startswith("/"):
-        audio_url = f"http://192.168.0.228:8000{audio_url}"
+        base_url = str(request.base_url).rstrip("/")
+        audio_url = f"{base_url}{audio_url}"
     
     return {
         "license_key": license_key,
-        "expires_at": user_book.expires_at,
+        "expires_at": user_book.expires_at if user_book else None,
         "download_url": audio_url,
         "encryption_key_id": media.encryption_key_id if media else None
     }
@@ -254,7 +262,11 @@ async def purchase_book(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Purchase a book (mock implementation)"""
+    """Purchase a book (records a completed payment and grants a license).
+
+    Equivalent to a card checkout that settles immediately; keeps backward
+    compatibility with the mobile app purchase button.
+    """
     # Check if already purchased
     result = await db.execute(
         select(UserBook).where(
@@ -263,28 +275,35 @@ async def purchase_book(
     )
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Book already purchased")
-    
+
     # Get book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
     book = book_result.scalar_one_or_none()
-    
+
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
-    # Create user book (mock purchase)
-    from datetime import datetime, timedelta
-    
-    user_book = UserBook(
+
+    from app.services import payments as payment_service
+
+    payment = await payment_service.create_checkout(
+        db,
         user_id=current_user.id,
+        method=payment_service.METHOD_CARD,
+        item_type="book",
         book_id=book_id,
-        license_key=generate_drm_key(book_id, current_user.id, "purchase"),
-        license_type="purchase"
     )
-    
-    db.add(user_book)
+    payment.status = payment_service.STATUS_COMPLETED
+    payment.completed_at = payment_service._utcnow()
+    await payment_service._grant_book_access(db, current_user.id, book_id)
     await db.commit()
-    
-    return {"message": "Book purchased successfully", "book_id": book_id}
+    await db.refresh(payment)
+
+    return {
+        "message": "Book purchased successfully",
+        "book_id": book_id,
+        "payment_id": payment.id,
+        "reference": payment.reference,
+    }
 
 
 @router.post("/{book_id}/download")
@@ -318,8 +337,12 @@ async def update_book(
     book_id: str,
     book_data: Dict[str, Any],
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Update a book (admin use)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
     if not book:
@@ -337,8 +360,12 @@ async def update_book(
 async def delete_book(
     book_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Delete a book (admin use)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
     if not book:

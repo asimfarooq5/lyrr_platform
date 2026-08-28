@@ -21,6 +21,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     device_info: Optional[DeviceInfo] = None
+    phone: Optional[str] = None
 
 
 class UserResponse(UserBase):
@@ -29,6 +30,8 @@ class UserResponse(UserBase):
     is_verified: bool
     is_admin: bool
     created_at: datetime
+    phone: Optional[str] = None
+    phone_verified: bool = False
     
     class Config:
         from_attributes = True
@@ -72,3 +75,25 @@ class MagicLinkRequest(BaseModel):
 
 class MagicLinkResponse(BaseModel):
     message: str
+
+
+class VerifyRequest(BaseModel):
+    """Request an OTP for email or phone verification."""
+    channel: str  # "email" or "phone"
+    target: str   # email address or phone number
+
+
+class VerifyConfirm(BaseModel):
+    """Confirm an OTP and mark the channel verified."""
+    channel: str  # "email" or "phone"
+    target: str   # email address or phone number
+    code: str
+
+
+class VerifyResponse(BaseModel):
+    message: str
+    verified: bool = False
+    expires_in: Optional[int] = None
+    # Sandbox-only: the OTP is returned to the caller for local testing.
+    # Never populated in live mode (delivered via email/SMS instead).
+    sandbox_otp: Optional[str] = None

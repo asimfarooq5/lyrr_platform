@@ -13,7 +13,21 @@
                 <td><a href="/admin/books/{{ book.id }}" style="color:#6B4EFF;text-decoration:none;font-weight:600;">{{ book.title }}</a></td>
                 <td>{{ book.author }}</td>
                 <td><span style="font-size:12px;color:#666;">{{ book.book_type or 'fiction' }}</span></td>
-                <td>{{ "✅" if book.media else "❌" }}</td>
+                <td>
+                    {% if book.media %}
+                        {% set m = book.media[0] %}
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <button class="play-btn-sm" onclick="event.stopPropagation(); toggleAudioList(this,'{{ m.audio_url }}')" aria-label="Play preview">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                            </button>
+                            {% if m.duration %}
+                            <span style="font-size:11px;color:#888;">{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}</span>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        ❌
+                    {% endif %}
+                </td>
                 <td>{{ "✅" if book.cover_url else "❌" }}</td>
                 <td>
                     <a href="/admin/books/{{ book.id }}" class="btn btn-sm" style="background:#6B4EFF;color:white;text-decoration:none;">Edit</a>
@@ -29,6 +43,7 @@
     <div class="modal">
         <h3>Add Book</h3>
         <form method="POST" action="/admin/books">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group"><label>Title</label><input type="text" name="title" required></div>
             <div class="form-group"><label>Author</label><input type="text" name="author"></div>
             <div class="form-group"><label>Description</label><textarea name="description" rows="3"></textarea></div>
@@ -43,7 +58,9 @@
         </form>
     </div>
 </div>
-<form id="deleteForm" method="POST" style="display:none;"></form>
+<form id="deleteForm" method="POST" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+</form>
 <script>
 function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}

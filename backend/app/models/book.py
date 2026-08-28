@@ -43,6 +43,9 @@ class Book(Base):
     cover_url = Column(String(500), nullable=True)
     book_type = Column(String(50), default="fiction")  # scholar, fiction, non_fiction, children, reference
     
+    # Pricing (pay-per-book)
+    price = Column(Float, nullable=True)  # in settings.PAYMENT_CURRENCY
+
     # Metadata
     language = Column(Enum(Language), default=Language.EN)
     duration = Column(Integer, nullable=True)  # in seconds

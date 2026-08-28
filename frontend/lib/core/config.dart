@@ -4,9 +4,16 @@
 
 class AppConfig {
   // API Configuration
+  /// For Android emulator: http://10.0.2.2:8000/api/v1
+  /// For physical device on same WiFi: http://YOUR_LAN_IP:8000/api/v1
+  /// Pass at build time: --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
+  static const String _defaultApiBaseUrl = String.fromEnvironment(
+    'DEFAULT_API_BASE_URL',
+    defaultValue: 'https://api.lyrr.app/api/v1',
+  );
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.0.228:8000/api/v1',
+    defaultValue: _defaultApiBaseUrl,
   );
   
   static const String apiVersion = 'v1';

@@ -116,7 +116,7 @@
             display: inline-block;
             padding: 4px 10px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
         }
         .badge-success { background: #d1fae5; color: #059669; }
@@ -173,6 +173,182 @@
             border-radius: 12px;
             margin-bottom: 20px;
         }
+
+        /* ===== Redesigned Audio Preview Player ===== */
+        .audio-card {
+            background: #ffffff;
+            border: 1px solid #eef0f4;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .audio-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: #d0d5dd;
+        }
+
+        .audio-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .audio-format-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            color: white;
+        }
+        .audio-format-icon[data-format="mp3"]  { background: #6B4EFF; }
+        .audio-format-icon[data-format="m4a"]  { background: #0891b2; }
+        .audio-format-icon[data-format="wav"]  { background: #059669; }
+        .audio-format-icon[data-format="flac"] { background: #d97706; }
+        .audio-format-icon[data-format="aac"]  { background: #7c3aed; }
+        .audio-format-icon[data-format="ogg"]  { background: #ea580c; }
+
+        .audio-meta { flex: 1; min-width: 0; }
+        .audio-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #1a1a2e;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .audio-subtitle {
+            font-size: 12px;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        .audio-badges {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .badge-format { background: #EEF2FF; color: #4338CA; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+        .badge-quality-high   { background: #D1FAE5; color: #065F46; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+        .badge-quality-medium { background: #FEF3C7; color: #92400E; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+        .badge-quality-low    { background: #FEE2E2; color: #991B1B; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+        .badge-ai { background: #F3E8FF; color: #6B21A8; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+        .badge-encrypted { background: #FEF3C7; color: #78350F; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+
+        .audio-player-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .play-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: #6B4EFF;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .play-btn:hover { background: #5A3FE8; }
+        .play-btn:active { transform: scale(0.93); }
+        .play-btn.playing { background: #ef4444; }
+        .play-btn.playing:hover { background: #dc2626; }
+
+        .seek-bar-container {
+            flex: 1;
+            position: relative;
+            height: 6px;
+            background: #E5E7EB;
+            border-radius: 3px;
+            cursor: pointer;
+            min-width: 100px;
+        }
+        .seek-bar-fill {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            background: linear-gradient(90deg, #6B4EFF, #8B6FFF);
+            border-radius: 3px;
+            pointer-events: none;
+            transition: width 0.1s linear;
+        }
+        .seek-bar-thumb {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 14px;
+            height: 14px;
+            background: white;
+            border: 2px solid #6B4EFF;
+            border-radius: 50%;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            pointer-events: none;
+            transition: left 0.1s linear;
+        }
+
+        .time-display {
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            color: #1a1a2e;
+            min-width: 36px;
+            text-align: right;
+            font-weight: 600;
+        }
+        .time-total {
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            color: #999;
+            min-width: 36px;
+        }
+
+        .play-btn-sm {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: #6B4EFF;
+            color: white;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .play-btn-sm:hover { background: #5A3FE8; }
+        .play-btn-sm:active { transform: scale(0.90); }
+        .play-btn-sm.playing { background: #ef4444; }
+        .play-btn-sm.playing:hover { background: #dc2626; }
+
+        /* Waveform preview for books list */
+        .waveform-preview {
+            display: flex;
+            gap: 2px;
+            align-items: center;
+            height: 20px;
+        }
+        .waveform-bar {
+            width: 3px;
+            border-radius: 2px;
+            background: #d0d5dd;
+            transition: background 0.2s;
+        }
+        .waveform-bar.active { background: #6B4EFF; }
     </style>
 </head>
 <body>
@@ -189,9 +365,148 @@
             <a href="/admin/subscriptions" class="nav-item {% if page == 'subscriptions' %}active{% endif %}">💳 Subscriptions</a>
             <a href="/admin/analytics" class="nav-item {% if page == 'analytics' %}active{% endif %}">📈 Analytics</a>
         </div>
+        <div class="sidebar-nav" style="margin-top:auto; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08);">
+            <form method="POST" action="/admin/logout" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="logout-btn">🚪 Logout</button>
+            </form>
+        </div>
     </div>
     <div class="main">
         {% block content %}{% endblock %}
     </div>
+    <script>
+        // Audio player - single Audio instance, one track at a time
+        let currentAudio = null;
+        let currentCard = null;
+
+        function toggleAudio(btn, url) {
+            const card = btn.closest('.audio-card');
+            const seekFill = card.querySelector('.seek-bar-fill');
+            const seekThumb = card.querySelector('.seek-bar-thumb');
+            const timeDisplay = card.querySelector('.time-display');
+
+            // If clicking same card that's playing, pause it
+            if (currentAudio && card === currentCard && !currentAudio.paused) {
+                currentAudio.pause();
+                setPlayIcon(btn);
+                return;
+            }
+
+            // Stop previous audio
+            if (currentAudio) {
+                currentAudio.pause();
+                if (currentCard) {
+                    const prevBtn = currentCard.querySelector('.play-btn');
+                    setPlayIcon(prevBtn);
+                    currentCard.querySelector('.seek-bar-fill').style.width = '0%';
+                    currentCard.querySelector('.seek-bar-thumb').style.left = '0%';
+                    currentCard.querySelector('.time-display').textContent = '0:00';
+                }
+            }
+
+            // Start new audio
+            const audio = new Audio(url);
+            audio.preload = 'metadata';
+            currentAudio = audio;
+            currentCard = card;
+
+            audio.addEventListener('timeupdate', function() {
+                if (card && seekFill && this.duration) {
+                    const pct = (this.currentTime / this.duration) * 100;
+                    seekFill.style.width = pct + '%';
+                    seekThumb.style.left = pct + '%';
+                    timeDisplay.textContent = formatTime(this.currentTime);
+                }
+            });
+
+            audio.addEventListener('loadedmetadata', function() {
+                // Enable seek container
+                seekFill.style.width = '0%';
+                seekThumb.style.left = '0%';
+            });
+
+            audio.addEventListener('ended', function() {
+                setPlayIcon(btn);
+                seekFill.style.width = '0%';
+                seekThumb.style.left = '0%';
+                timeDisplay.textContent = '0:00';
+                currentAudio = null;
+                currentCard = null;
+            });
+
+            audio.play().then(() => {
+                setPauseIcon(btn);
+            }).catch(() => {
+                setPlayIcon(btn);
+                currentAudio = null;
+                currentCard = null;
+            });
+        }
+
+        function clickSeek(event, container, url) {
+            if (!currentAudio || currentAudio.paused || !currentAudio.duration) return;
+            const rect = container.getBoundingClientRect();
+            const pct = (event.clientX - rect.left) / rect.width;
+            currentAudio.currentTime = pct * currentAudio.duration;
+        }
+
+        function formatTime(seconds) {
+            if (!isFinite(seconds) || !seconds) return '0:00';
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        }
+
+        function setPauseIcon(btn) {
+            btn.classList.add('playing');
+            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+        }
+
+        function setPlayIcon(btn) {
+            btn.classList.remove('playing');
+            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>';
+        }
+
+        // Quick preview from books list
+        let listAudio = null;
+        let listBtn = null;
+        function toggleAudioList(btn, url) {
+            if (listAudio && btn === listBtn) {
+                listAudio.pause();
+                setListPlayIcon(btn);
+                listAudio = null;
+                listBtn = null;
+                return;
+            }
+            if (listAudio) {
+                listAudio.pause();
+                setListPlayIcon(listBtn);
+            }
+            const audio = new Audio(url);
+            audio.preload = 'none';
+            listAudio = audio;
+            listBtn = btn;
+            setListPauseIcon(btn);
+            audio.addEventListener('ended', function() {
+                setListPlayIcon(btn);
+                listAudio = null;
+                listBtn = null;
+            });
+            audio.play().catch(function() {
+                setListPlayIcon(btn);
+                listAudio = null;
+                listBtn = null;
+            });
+        }
+        function setListPlayIcon(btn) {
+            btn.classList.remove('playing');
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+        }
+        function setListPauseIcon(btn) {
+            btn.classList.add('playing');
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="4" height="14" rx="1"/><rect x="13" y="5" width="4" height="14" rx="1"/></svg>';
+        }
+    </script>
 </body>
 </html>

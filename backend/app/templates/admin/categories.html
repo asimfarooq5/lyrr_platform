@@ -14,6 +14,7 @@
                 <td style="font-family:monospace;">{{ cat.slug }}</td>
                 <td>
                     <form method="POST" action="/admin/categories/{{ cat.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this category?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="btn btn-danger btn-sm">Delete</button>
                     </form>
                 </td>
@@ -27,6 +28,7 @@
     <div class="modal">
         <h3>Add Category</h3>
         <form method="POST" action="/admin/categories">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
             <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
             <div class="modal-actions">
@@ -41,3 +43,4 @@ function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}
 </script>
 {% endblock %}
+endblock %}

@@ -2,7 +2,6 @@
 # 
 # Install with: pip install -r requirements.txt
 # For development: pip install -r requirements.txt -r requirements-dev.txt
-# For production: pip install -r requirements.txt -r requirements-prod.txt
 
 # FastAPI Core
 fastapi==0.109.0
@@ -18,12 +17,25 @@ alembic==1.13.1
 # Authentication
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+# bcrypt pinned to 4.0.1: passlib 1.7.4 is incompatible with bcrypt >= 4.1
+# (bcrypt removed __about__ and raises on >72 byte passwords)
+bcrypt==4.0.1
 
 # Security
 cryptography==42.0.0
 pydantic[email]==2.5.3
 pydantic-settings==2.1.0
 
+# Rate limiting (slowapi) + Redis client (caching, CSRF store)
+slowapi==0.1.9
+redis==5.0.1
+
 # Utilities
 python-dotenv==1.0.0
+
+# Excel export for admin analytics
+openpyxl==3.1.2
+
+# EPUB Parsing
+beautifulsoup4==4.12.3
+lxml==5.1.0

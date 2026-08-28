@@ -1,0 +1,33 @@
+# Flutter/Dart
+.dart_tool/
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# Environment
+.env
+*.env
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Test artifacts
+test/
+android/.gradle/
+android/local.properties
+ios/Pods/
+macos/Pods/

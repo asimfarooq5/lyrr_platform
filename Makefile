@@ -3,7 +3,7 @@
 # Quick commands for development
 
 SHELL := /bin/bash
-.PHONY: help setup setup-infra start stop restart backend migrate shell seed build-apk build-admin build-all test test-backend lint format typecheck flutter admin clean clean-all
+.PHONY: help setup setup-infra start stop restart backend migrate shell seed build-apk build-web build-all test test-backend lint format typecheck flutter clean clean-all
 
 # Default target
 help:
@@ -35,7 +35,7 @@ help:
 	@echo ""
 	@echo "Flutter:"
 	@echo "  make flutter       - Run Flutter app"
-	@echo "  make admin         - Run Admin portal"
+	@echo "  (Admin portal is served by the backend at http://localhost:8000/admin)"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean         - Clean up containers and volumes"
@@ -96,8 +96,8 @@ typecheck:
 flutter:
 	cd frontend && flutter run
 
-admin:
-	cd admin && flutter run -d chrome
+# The admin portal is served by the backend at /admin (Jinja2 templates).
+# Visit http://localhost:8000/admin after starting the backend.
 
 # Cleanup
 clean:
@@ -112,16 +112,18 @@ clean-all: clean
 build-apk:
 	@echo "📱 Building Android APK..."
 	cd frontend && flutter build apk --release
+	mkdir -p dist
 	cp frontend/build/app/outputs/flutter-apk/app-release.apk dist/lyrr.apk
 	@echo "✓ APK saved to dist/lyrr.apk"
 
-build-admin:
-	@echo "🌐 Building Admin Portal..."
-	cd admin && flutter build web --release
-	cp -r admin/build/web/* dist/admin/
-	@echo "✓ Admin portal built to dist/admin/"
+build-web:
+	@echo "🌐 Building Flutter Web app..."
+	cd frontend && flutter build web --release
+	mkdir -p dist/web
+	cp -r frontend/build/web/* dist/web/
+	@echo "✓ Web app built to dist/web/"
 
-build-all: build-apk build-admin
+build-all: build-apk build-web
 	@echo "📦 All builds complete"
 
 # Seed database

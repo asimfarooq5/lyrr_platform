@@ -6,14 +6,27 @@ Run: alembic upgrade head && python seed_data.py
 
 import asyncio
 import json
+import os
 import random
+import sys
 import uuid
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
+
 from app.core.database import AsyncSessionLocal, init_db
 from app.models.book import Book, Chapter, BookMedia, UserBook, BookStatus, Language
+from app.models.content import SubscriptionPlan
 from app.models.user import User
 from app.core.security import get_password_hash
+from app.core.config import settings
+
+# Admin/demo credentials come from the environment; the defaults below are
+# for LOCAL DEVELOPMENT ONLY. The script refuses to run with them in production.
+SEED_ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@lyrr.app")
+SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin123")
+SEED_DEMO_EMAIL = os.environ.get("SEED_DEMO_EMAIL", "demo@lyrr.app")
+SEED_DEMO_PASSWORD = os.environ.get("SEED_DEMO_PASSWORD", "demo123")
 
 SAMPLE_BOOKS = [
     {
@@ -137,13 +150,23 @@ def generate_sync_data(words: list, base_time: float = 0.0) -> list:
 
 
 async def seed():
+    # Refuse to run with default credentials in production environments
+    if settings.ENVIRONMENT == "production" and (
+        SEED_ADMIN_PASSWORD == "admin123" or SEED_DEMO_PASSWORD == "demo123"
+    ):
+        print(
+            "Refusing to seed with default credentials in production.\n"
+            "Set SEED_ADMIN_PASSWORD / SEED_DEMO_PASSWORD environment variables."
+        )
+        sys.exit(1)
+
     await init_db()
 
     async with AsyncSessionLocal() as session:
         # Create admin user
         admin = User(
-            email="admin@lyrr.app",
-            hashed_password=get_password_hash("admin123"),
+            email=SEED_ADMIN_EMAIL,
+            hashed_password=get_password_hash(SEED_ADMIN_PASSWORD),
             is_active=True,
             is_verified=True,
             is_admin=True,
@@ -152,14 +175,38 @@ async def seed():
 
         # Create demo user
         demo = User(
-            email="demo@lyrr.app",
-            hashed_password=get_password_hash("demo123"),
+            email=SEED_DEMO_EMAIL,
+            hashed_password=get_password_hash(SEED_DEMO_PASSWORD),
             is_active=True,
             is_verified=True,
             is_admin=False,
         )
         session.add(demo)
         await session.flush()
+
+        # Create subscription plans (FRS §10: monthly / annual)
+        existing_plans = await session.execute(select(SubscriptionPlan))
+        if existing_plans.scalars().first() is None:
+            session.add_all([
+                SubscriptionPlan(
+                    name="Monthly",
+                    description="30 days of unlimited reading and listening",
+                    price=2000.0,
+                    currency="XAF",
+                    interval="monthly",
+                    is_active=True,
+                ),
+                SubscriptionPlan(
+                    name="Annual",
+                    description="12 months of unlimited reading and listening",
+                    price=20000.0,
+                    currency="XAF",
+                    interval="annual",
+                    is_active=True,
+                ),
+            ])
+            await session.flush()
+            print("   Subscription plans created (Monthly 2000 XAF, Annual 20000 XAF)")
 
         # Create books
         for i, book_data in enumerate(SAMPLE_BOOKS):
@@ -238,8 +285,8 @@ async def seed():
 
         await session.commit()
         print(f"\n✅ Seeded {len(SAMPLE_BOOKS)} books successfully")
-        print(f"   Admin: admin@lyrr.app / admin123")
-        print(f"   Demo:  demo@lyrr.app / demo123")
+        print(f"   Admin: {SEED_ADMIN_EMAIL} / {SEED_ADMIN_PASSWORD}")
+        print(f"   Demo:  {SEED_DEMO_EMAIL} / {SEED_DEMO_PASSWORD}")
 
 
 if __name__ == "__main__":

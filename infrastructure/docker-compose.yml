@@ -57,7 +57,6 @@ services:
       - POSTGRES_DB=lyrr
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "5432:5432"
     networks:
@@ -139,7 +138,6 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
       - static-files:/var/www/static:ro
     depends_on:
       - api
@@ -180,30 +178,6 @@ services:
     depends_on:
       - prometheus
 
-  # Celery Worker (for background tasks)
-  worker:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile.worker
-    container_name: lyrr-worker
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/lyrr
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_BUCKET=${S3_BUCKET:-lyrr-media}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-    depends_on:
-      - db
-      - redis
-    networks:
-      - lyrr-network
-    volumes:
-      - worker-logs:/app/logs
-
   # Frontend Web App (Flutter Web)
   web:
     build:
@@ -218,20 +192,6 @@ services:
     depends_on:
       - api
 
-  # Admin Portal (Flutter Web)
-  admin:
-    build:
-      context: ../admin
-      dockerfile: Dockerfile
-    container_name: lyrr-admin
-    restart: unless-stopped
-    ports:
-      - "8081:80"
-    networks:
-      - lyrr-network
-    depends_on:
-      - api
-
 volumes:
   postgres-data:
   redis-data:
@@ -240,7 +200,6 @@ volumes:
   prometheus-data:
   grafana-data:
   api-logs:
-  worker-logs:
   static-files:
 
 networks:

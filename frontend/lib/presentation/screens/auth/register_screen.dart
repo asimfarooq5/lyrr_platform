@@ -95,7 +95,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // Title
                 Text(
                   'Join LYRR',
-                  style: theme.textTheme.displayMedium,
+                  style: theme.textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(

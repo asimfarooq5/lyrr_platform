@@ -3,6 +3,7 @@ Application configuration
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import List, Optional
 import os
 
@@ -65,16 +66,63 @@ class Settings(BaseSettings):
     ]
     
     # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_WINDOW: int = 60
     
     # Media
     MAX_UPLOAD_SIZE_MB: int = 500
+    MAX_COVER_SIZE_MB: int = 10
+    MEDIA_AUTH_ENABLED: bool = False
     SUPPORTED_AUDIO_FORMATS: List[str] = ["mp3", "m4a", "wav", "flac"]
+    ALLOWED_AUDIO_MIME_TYPES: List[str] = ["audio/mpeg", "audio/mp4", "audio/wav", "audio/flac", "audio/x-m4a", "audio/aac"]
+    ALLOWED_IMAGE_MIME_TYPES: List[str] = ["image/jpeg", "image/png", "image/webp"]
+    
+    # CSRF
+    CSRF_ENABLED: bool = True
     
     # Sync
     SYNC_BATCH_SIZE: int = 100
-    SYNC_CONFLICT_RESOLUTION: str = "server_wins"  # or "client_wins", "last_write"
+    SYNC_CONFLICT_RESOLUTION: str = "server_wins"
+    
+    # Payments
+    PAYMENT_MODE: str = "sandbox"  # sandbox or live
+    PAYMENT_CURRENCY: str = "XAF"
+    DEFAULT_BOOK_PRICE: float = 500.0
+
+    # Bypass per-book purchase checks so all published books are readable
+    # by any authenticated user. This is the current operating mode — flip
+    # to False once the purchase/licensing flow is wired end to end.
+    BYPASS_LIBRARY_PERMISSIONS: bool = True
+    
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if v in ("your-secret-key-change-in-production", "", "your-secret-key"):
+            raise ValueError(
+                "SECRET_KEY must be changed from the default value. "
+                "Generate a strong key with: openssl rand -hex 32"
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f"SECRET_KEY must be at least 32 characters (got {len(v)}). "
+                "Generate a strong key with: openssl rand -hex 32"
+            )
+        return v
+    
+    @field_validator("ENCRYPTION_KEY")
+    @classmethod
+    def validate_encryption_key(cls, v: str) -> str:
+        if v in ("your-encryption-key-32-chars-long", "", "your-encryption-key"):
+            raise ValueError(
+                "ENCRYPTION_KEY must be changed from the default value. "
+                "Generate a key with: openssl rand -hex 16"
+            )
+        if len(v) < 16:
+            raise ValueError(
+                f"ENCRYPTION_KEY must be at least 16 characters (got {len(v)})"
+            )
+        return v
     
     class Config:
         env_file = ".env"

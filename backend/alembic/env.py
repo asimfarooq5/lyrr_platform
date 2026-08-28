@@ -17,7 +17,7 @@ sys.path.append(".")
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models import user, book, user_data, sync
+from app.models import user, book, user_data, sync, content, reading_session
 
 # this is the Alembic Config object
 config = context.config

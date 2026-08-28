@@ -14,11 +14,12 @@ from app.core.security import (
     create_refresh_token, decode_token, generate_device_fingerprint
 )
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.user import User, UserDevice
 from app.schemas.auth import (
     UserCreate, UserResponse, TokenResponse, LoginRequest,
     RefreshRequest, PasswordResetRequest, PasswordChangeRequest,
-    SocialLoginRequest, DeviceInfo
+    SocialLoginRequest, DeviceInfo, VerifyRequest, VerifyConfirm, VerifyResponse
 )
 
 router = APIRouter()
@@ -64,9 +65,10 @@ async def get_current_active_user(
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register(
-    user_data: UserCreate,
     request: Request,
+    user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new user"""
@@ -78,11 +80,22 @@ async def register(
             detail="Email already registered"
         )
     
+    # Check if phone exists (if provided)
+    if user_data.phone:
+        phone_result = await db.execute(select(User).where(User.phone == user_data.phone))
+        if phone_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered"
+            )
+    
     # Create user
     user = User(
         email=user_data.email,
         hashed_password=get_password_hash(user_data.password) if user_data.password else None,
-        is_verified=False
+        is_verified=False,
+        phone=user_data.phone,
+        phone_verified=False,
     )
     
     db.add(user)
@@ -116,7 +129,9 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     login_data: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -158,7 +173,9 @@ async def login(
 
 
 @router.post("/login/form", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def login_form(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
@@ -191,7 +208,9 @@ async def login_form(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh_token(
+    request: Request,
     refresh_data: RefreshRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -267,3 +286,86 @@ async def social_login(
 async def get_me(current_user: User = Depends(get_current_active_user)):
     """Get current user info"""
     return current_user
+
+
+@router.post("/verify/request", response_model=VerifyResponse)
+@limiter.limit("5/minute")
+async def request_verification(
+    request: Request,
+    data: VerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request an OTP for email or phone verification (FRS §4).
+
+    In sandbox mode the OTP is returned in the response for local testing.
+    In live mode it is delivered via email/SMS and not returned.
+    """
+    from app.services import verification
+
+    channel = (data.channel or "").lower()
+    if channel not in ("email", "phone"):
+        raise HTTPException(status_code=400, detail="channel must be 'email' or 'phone'")
+
+    target = data.target.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="target is required")
+
+    # The OTP must map to an existing user account.
+    if channel == "email":
+        result = await db.execute(select(User).where(User.email == target.lower()))
+    else:
+        result = await db.execute(select(User).where(User.phone == target))
+    user = result.scalar_one_or_none()
+    if not user:
+        # Do not reveal account existence
+        raise HTTPException(status_code=404, detail="No account found for this target")
+
+    code = await verification.request_otp(channel, target)
+
+    return {
+        "message": f"Verification code sent to {channel}",
+        "verified": False,
+        "expires_in": verification.OTP_TTL_SECONDS,
+        # Sandbox-only: expose the OTP so the flow completes locally.
+        **({"sandbox_otp": code} if code else {}),
+    }
+
+
+@router.post("/verify/confirm", response_model=VerifyResponse)
+@limiter.limit("10/minute")
+async def confirm_verification(
+    request: Request,
+    data: VerifyConfirm,
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm an OTP and mark the email/phone as verified (FRS §4)."""
+    from app.services import verification
+
+    channel = (data.channel or "").lower()
+    if channel not in ("email", "phone"):
+        raise HTTPException(status_code=400, detail="channel must be 'email' or 'phone'")
+
+    target = data.target.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="target is required")
+
+    if not await verification.verify_otp(channel, target, data.code):
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+
+    # Mark the channel verified on the matching account.
+    if channel == "email":
+        result = await db.execute(select(User).where(User.email == target.lower()))
+    else:
+        result = await db.execute(select(User).where(User.phone == target))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found for this target")
+
+    if channel == "email":
+        user.is_verified = True
+    else:
+        user.phone_verified = True
+        user.is_verified = True
+    await db.commit()
+
+    return {"message": f"{channel} verified successfully", "verified": True}

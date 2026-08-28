@@ -34,13 +34,18 @@ COPY --from=builder /root/.local /root/.local
 # Make sure scripts in .local are usable
 ENV PATH=/root/.local/bin:$PATH
 
+# Create a non-root user to run the app
+RUN useradd --create-home --shell /bin/bash appuser \
+    && mkdir -p /app/logs /app/storage/audio /app/storage/covers \
+    && chown -R appuser:appuser /app
+
 # Copy application code
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
-# Create logs directory
-RUN mkdir -p /app/logs
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8000

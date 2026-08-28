@@ -3,9 +3,12 @@
 # Multi-stage build for production
 
 # Stage 1: Build Flutter web app
-FROM ghcr.io/cirruslabs/flutter:3.16.0 as builder
+FROM ghcr.io/cirruslabs/flutter:3.41.1 as builder
 
 WORKDIR /app
+
+# API base URL injected at build time (defaults to the production API)
+ARG API_BASE_URL=https://api.lyrr.app/api/v1
 
 # Copy pubspec files
 COPY pubspec.yaml pubspec.lock ./
@@ -18,7 +21,7 @@ COPY lib/ ./lib/
 COPY assets/ ./assets/
 
 # Build for web
-RUN flutter build web --release
+RUN flutter build web --release --dart-define=API_BASE_URL=$API_BASE_URL
 
 # Stage 2: Serve with Nginx
 FROM nginx:alpine as production

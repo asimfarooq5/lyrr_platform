@@ -22,6 +22,11 @@ class AppColors {
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color surfaceDark = Color(0xFF16213E);
   
+  // Kindle reading modes
+  static const Color readingLight = Color(0xFFF5F2EB);   // Warm cream
+  static const Color readingSepia = Color(0xFFF4ECD8);   // Classic sepia
+  static const Color readingDark = Color(0xFF0F0F1A);    // Dark mode
+  
   // Text
   static const Color textPrimaryLight = Color(0xFF1A1A2E);
   static const Color textSecondaryLight = Color(0xFF6B7280);
@@ -40,6 +45,20 @@ class AppColors {
   static const Color bookmarkBlue = Color(0xFF87CEEB);
   static const Color bookmarkPink = Color(0xFFFFB6C1);
   static const Color bookmarkPurple = Color(0xFFDDA0DD);
+  
+  // Kindle UI
+  static const Color kindleOrange = Color(0xFFFF9900);
+}
+
+/// Animation durations and values used across the app
+class AppAnimations {
+  static const Duration fast = Duration(milliseconds: 150);
+  static const Duration normal = Duration(milliseconds: 300);
+  static const Duration slow = Duration(milliseconds: 600);
+  static const Duration highlight = Duration(milliseconds: 200);
+  
+  static const double highlightScale = 1.04;
+  static const double highlightRadius = 3;
 }
 
 /// App theme

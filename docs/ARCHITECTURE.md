@@ -1,267 +1,193 @@
-# LYRR Platform - Complete Architecture
+# LYRR Platform - Architecture
 
 ## Overview
 
-Full-fledged audiobook synchronization platform with enterprise features.
+Audiobook + e-book reading platform with word-level audio synchronization.
+Flutter mobile app, FastAPI backend, server-rendered Jinja2 admin portal,
+and Flutter Web frontend.
 
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLIENT LAYER                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
-│  │  Mobile App  │  │  Desktop App │  │    Web App   │  │  Admin Portal│   │
-│  │   (Flutter)  │  │   (Flutter)  │  │   (Flutter)  │  │ (Flutter Web)│   │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              API GATEWAY                                     │
-│                         (Fastify + Rate Limiting)                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-│   AUTH SERVICE      │ │   CORE SERVICES     │ │   MEDIA SERVICES    │
-│  ┌───────────────┐   │ │  ┌───────────────┐   │ │  ┌───────────────┐   │
-│  │  JWT/OAuth2   │   │ │  │  Book API     │   │ │  │  Audio CDN    │   │
-│  │  Magic Links  │   │ │  │  Sync API     │   │ │  │  Transcoding  │   │
-│  │  Social Auth  │   │ │  │  Library API  │   │ │  │  AI Narration │   │
-│  └───────────────┘   │ │  │  Search API   │   │ │  └───────────────┘   │
-└─────────────────────┘ │  └───────────────┘   │ └─────────────────────┘
-                        │  ┌───────────────┐   │
-                        │  │  User Data    │   │
-                        │  │  - Bookmarks  │   │
-                        │  │  - Notes      │   │
-                        │  │  - Progress   │   │
-                        │  │  - Settings   │   │
-                        │  └───────────────┘   │
-                        └─────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            DATA LAYER                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
-│  │  PostgreSQL  │  │    Redis     │  │     S3       │  │ Elasticsearch│   │
-│  │  (Primary)   │  │   (Cache)    │  │   (Media)    │  │   (Search)   │   │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                            CLIENT LAYER                              │
+├──────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────────┐  ┌─────────────────────────┐  │
+│  │ Mobile App  │  │ Flutter Web App │  │ Admin Portal (Jinja2)   │  │
+│  │  (Flutter)  │  │  (frontend/)    │  │ (backend /admin routes) │  │
+│  └─────────────┘  └─────────────────┘  └─────────────────────────┘  │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                     Nginx Reverse Proxy (infrastructure/)            │
+│                     TLS-ready, rate limiting, media streaming       │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                     FastAPI Backend (backend/)                       │
+│  /api/v1  REST API (JWT auth, books, user data, sync, media)        │
+│  /admin   Server-rendered admin portal (Jinja2)                     │
+│  /media   Audio streaming (Range requests) + cover images           │
+└───────┬──────────────┬──────────────┬───────────────────────────────┘
+        ▼              ▼              ▼
+┌──────────────┐ ┌────────────┐ ┌──────────────┐
+│  PostgreSQL  │ │   Redis    │ │   MinIO/S3   │
+│  (primary)   │ │  (cache,   │ │   (media)    │
+│              │ │  CSRF store│ │              │
+└──────────────┘ └────────────┘ └──────────────┘
 ```
 
 ## Technology Stack
 
-### Backend
-- **Runtime**: Node.js 20+
-- **Framework**: Fastify 4.x
-- **Database**: PostgreSQL 15+ (with encryption)
-- **Cache**: Redis 7+
-- **Search**: Elasticsearch 8+
-- **Storage**: AWS S3 / MinIO
-- **Queue**: BullMQ (Redis)
-- **Real-time**: Socket.io
+### Backend (backend/)
+- **Runtime**: Python 3.11, FastAPI + Uvicorn
+- **Database**: PostgreSQL 15 (SQLAlchemy 2 async + asyncpg)
+- **Migrations**: Alembic
+- **Auth**: JWT (access + refresh tokens), bcrypt password hashing
+- **Security**: CSRF tokens (Redis-backed store), rate limiting (slowapi),
+  upload validation (extension + size caps), zip-slip-safe EPUB extraction
+- **Cache/Queue**: Redis (async client)
+- **Search**: Elasticsearch (optional)
+- **Admin Portal**: Jinja2 server-rendered templates (`app/templates/admin/`)
 
-### Frontend
-- **Framework**: Flutter 3.16+
-- **State Management**: Riverpod 2.x
-- **Local DB**: Drift (SQLite) + Hive
-- **HTTP**: Dio
-- **WebSocket**: Socket.io client
+### Frontend (frontend/)
+- **Framework**: Flutter (mobile + web)
+- **State management**: Riverpod 2.x
+- **Local storage**: Drift (SQLite) for offline content + sync queue
+- **Audio**: just_audio with word-level sync highlighting
+- **TTS**: flutter_tts for read-aloud
 
-### Infrastructure
-- **Container**: Docker + Docker Compose
-- **Orchestration**: Kubernetes (production)
-- **CI/CD**: GitHub Actions
-- **Monitoring**: Prometheus + Grafana
+### Deployment (infrastructure/)
+- **Docker Compose** (`docker-compose.prod.yml`): api, db, redis,
+  elasticsearch, web, nginx
+- **Nginx**: reverse proxy, TLS-ready (cert paths commented until provisioned),
+  rate limits, media streaming pass-through
+- **Monitoring**: Prometheus + Grafana (full-stack compose only)
 
-## Security Architecture
-
-### Encryption
-- **At Rest**: AES-256-GCM for database fields
-- **In Transit**: TLS 1.3
-- **Media**: AES-128-CBC with rotating keys (DRM)
+## Key Flows
 
 ### Authentication
-- JWT with RS256
-- Refresh token rotation
-- Device fingerprinting
-- Rate limiting per user/IP
+1. Client POSTs `/api/v1/auth/register` (rate-limited 5/min)
+2. Login (`/api/v1/auth/login`, 10/min) returns access (30 min) + refresh (7 day) tokens
+3. Access token sent as `Authorization: Bearer` header
+4. Refresh via `/api/v1/auth/refresh` (30/min)
+5. Admin portal uses a separate `admin`-typed JWT cookie + CSRF tokens
 
-### DRM
-- License server with device binding
-- Encrypted media chunks
-- Key rotation every 24 hours
-- Offline license validation
+### Audio Sync
+1. Chapters store per-word timestamps (`sync_data`)
+2. Client binary-searches word position for audio position
+3. Tapping a highlighted word seeks the audio
+4. Audio streamed with HTTP Range requests for seeking
+
+### Offline Sync
+1. Bookmarks/notes/progress written to local Drift DB with `isSynced: false`
+2. `SyncService` pushes changes to `/api/v1/sync/push` (batch)
+3. Pulls server changes via `/api/v1/sync/pull?since=...`
+4. Conflicts stored for resolution
 
 ## Database Schema
 
 ### Users
 ```sql
-users (id, email, password_hash, created_at, updated_at)
-user_profiles (user_id, name, avatar, preferences)
-user_devices (id, user_id, device_fingerprint, last_active)
+users (id, email, hashed_password, is_active, is_verified, is_admin)
+user_profiles (user_id, name, avatar_url, preferences)
+user_devices (id, user_id, device_fingerprint, device_name, last_ip)
 ```
 
 ### Books
 ```sql
-books (id, title, author, description, cover_url, duration, language, is_published)
-book_chapters (id, book_id, title, order_index)
-book_content (id, book_id, word_data, sync_data)
-book_media (id, book_id, audio_url, format, quality)
+books (id, title, author, description, cover_url, book_type, language,
+       duration, word_count, isbn, status, is_featured, drm_enabled)
+chapters (id, book_id, title, order_index, content, sync_data)
+book_media (id, book_id, audio_url, format, quality, is_ai_narrated)
+user_books (id, user_id, book_id, license_key, license_type, expires_at)
 ```
 
 ### User Data
 ```sql
-user_books (user_id, book_id, purchase_date, license_key)
-reading_progress (user_id, book_id, position, last_read_at)
+reading_progress (id, user_id, book_id, chapter_id, word_id,
+                  position_seconds, progress_percent, last_read_at)
 bookmarks (id, user_id, book_id, word_id, note, created_at)
 notes (id, user_id, book_id, word_id, content, created_at, updated_at)
+reading_sessions (id, user_id, book_id, date, duration_seconds)  -- streaks
 ```
 
 ### Sync
 ```sql
-sync_queue (id, user_id, device_id, operation, data, status)
+sync_queue (id, user_id, device_id, operation, entity_type, data, status)
 sync_conflicts (id, user_id, entity_type, local_data, server_data)
+sync_checkpoints (id, user_id, device_id, last_sync_at)
 ```
 
 ## API Endpoints
 
-### Authentication
+### Authentication (`/api/v1/auth`)
 ```
-POST /auth/register
-POST /auth/login
-POST /auth/refresh
-POST /auth/logout
-POST /auth/forgot-password
-POST /auth/reset-password
-POST /auth/social/{provider}
+POST /register, /login, /login/form, /refresh, /logout, /forgot-password
+GET  /me
 ```
 
-### Books
+### Books (`/api/v1/books`)
 ```
-GET /books (search, filter, pagination)
-GET /books/:id
-GET /books/:id/content
-GET /books/:id/sync
-POST /books/:id/download
-GET /books/:id/license
+GET  /                    (search, filter, pagination)
+GET  /{id}, /{id}/content, /{id}/sync
+POST /{id}/license, /{id}/purchase, /{id}/download
+PUT  /{id}, DELETE /{id}  (admin only)
 ```
 
-### User Data
+### User Data (`/api/v1/me`)
 ```
-GET /me/library
-GET /me/progress
-POST /me/progress
-GET /me/bookmarks
-POST /me/bookmarks
-DELETE /me/bookmarks/:id
-GET /me/notes
-POST /me/notes
-PUT /me/notes/:id
-DELETE /me/notes/:id
+GET  /library, /bookmarks, /notes, /progress, /progress/{book_id}
+GET  /stats, /stats/streaks
+POST /bookmarks, /notes, /progress
+PUT  /bookmarks/{id}, /notes/{id}
+DELETE /bookmarks/{id}, /notes/{id}
 ```
 
-### Sync
+### Sync (`/api/v1/sync`)
 ```
-POST /sync/push
-GET /sync/pull
-POST /sync/resolve
+POST /push, /resolve/{conflict_id}
+GET  /pull, /conflicts, /checkpoint
 ```
 
-## Features
+### Admin (`/api/v1/admin`, admin-only)
+```
+GET /dashboard, /users, /analytics
+```
 
-### Core
-- [x] Synchronized playback
-- [x] Binary search sync (O(log n))
-- [x] Offline mode
-- [x] Book downloads
-
-### Authentication
-- [x] JWT authentication
-- [x] Social login (Google, Apple)
-- [x] Magic links
-- [x] Biometric authentication
-
-### Cloud
-- [x] Real-time sync
-- [x] Conflict resolution
-- [x] Multi-device support
-- [x] Background sync
-
-### DRM & Security
-- [x] Encrypted media
-- [x] License server
-- [x] Device binding
-- [x] Offline validation
-
-### User Features
-- [x] Bookmarks with notes
-- [x] Annotations
-- [x] Full-text search
-- [x] Dictionary lookup
-- [x] Reading statistics
-
-### AI Features
-- [x] AI narration (ElevenLabs)
-- [x] Voice cloning
-- [x] Language translation
-- [x] Auto-sync generation
-
-### Admin
-- [x] Book management
-- [x] User management
-- [x] Analytics dashboard
-- [x] Content moderation
-- [x] Revenue reports
-
-## Multi-Language Support
-
-### Supported Languages
-- English (en)
-- Spanish (es)
-- French (fr)
-- German (de)
-- Italian (it)
-- Portuguese (pt)
-- Chinese (zh)
-- Japanese (ja)
-- Korean (ko)
-- Arabic (ar)
-
-### Localization
-- ARB files for Flutter
-- i18n for backend
-- RTL support for Arabic
-- Dynamic font loading
+### Admin Portal (`/admin`, Jinja2 + CSRF)
+```
+Login/logout, dashboard, books (CRUD, cover/audio/EPUB upload),
+users (CRUD), subscriptions, categories, analytics + CSV export
+```
 
 ## Deployment
 
 ### Development
 ```bash
-docker-compose up
+./scripts/setup-local.sh          # venv + infra + env
+make start                        # infra + backend with reload
 ```
 
 ### Production
-- Kubernetes cluster
-- Horizontal pod autoscaling
-- CDN for media delivery
-- Database read replicas
-- Redis cluster
+```bash
+cd infrastructure
+export SECRET_KEY=... ENCRYPTION_KEY=... DB_PASSWORD=...
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+The API container runs `alembic upgrade head` before starting.
 
-## Monitoring
+## Security Notes
 
-### Metrics
-- API response times
-- Sync latency
-- Audio streaming quality
-- Error rates
-- User engagement
+- Secrets are injected via environment variables; `.env` files are gitignored
+- Rate limits: register 5/min, login 10/min, refresh 30/min, admin login 10/min
+- CSRF tokens are one-time-use, stored in Redis (multi-worker safe)
+- Media streaming validates paths and Range headers
+- EPUB upload is zip-slip-safe and size-capped
 
-### Logging
-- Structured JSON logs
-- Correlation IDs
-- Distributed tracing
-- Audit logs for security
+## Known Gaps (not production-ready features)
+
+- Social login (Google/Apple) is a stub returning 501
+- Forgot-password does not send email yet
+- Client-side DRM is cosmetic (audio plays via plain URL)
+- Search (Elasticsearch) is not wired into book queries yet

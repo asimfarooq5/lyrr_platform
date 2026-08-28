@@ -16,6 +16,7 @@
                 <td>{{ "✅" if plan.is_active else "❌" }}</td>
                 <td>
                     <form method="POST" action="/admin/subscriptions/plan/{{ plan.id }}/toggle" style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="btn btn-sm" style="background:{% if plan.is_active %}#fef3c7;color:#d97706{% else %}#d1fae5;color:#059669{% endif %}">
                             {{ "Deactivate" if plan.is_active else "Activate" }}
                         </button>
@@ -48,6 +49,7 @@
     <div class="modal">
         <h3>Add Subscription Plan</h3>
         <form method="POST" action="/admin/subscriptions/plan">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group"><label>Plan Name</label><input type="text" name="name" required></div>
             <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
             <div class="form-group"><label>Price (FCFA)</label><input type="number" name="price" step="0.01" required></div>
@@ -66,3 +68,4 @@ function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}
 </script>
 {% endblock %}
+endblock %}

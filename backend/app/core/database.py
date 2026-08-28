@@ -33,14 +33,22 @@ Base = declarative_base()
 
 
 async def init_db():
-    """Initialize database tables"""
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-        raise
+    """Initialize database tables.
+
+    In production this is a no-op: schema is managed by Alembic migrations
+    (see Dockerfile CMD: alembic upgrade head). create_all is kept for local
+    development only so `make setup` works without running migrations first.
+    """
+    if settings.DEBUG:
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database initialized successfully (DEBUG mode)")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
+    else:
+        logger.info("Skipping create_all in production (use Alembic migrations)")
 
 
 async def close_db():

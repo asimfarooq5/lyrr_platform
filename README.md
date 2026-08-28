@@ -65,13 +65,10 @@ flutter pub get
 flutter run
 ```
 
-#### 4. Setup Admin Portal
+#### 4. Access Admin Portal
 
-```bash
-cd admin
-flutter pub get
-flutter run -d chrome
-```
+The admin portal is served by the backend at http://localhost:8000/admin
+(login with the admin account created by `make seed`).
 
 ## Project Structure
 
@@ -83,13 +80,11 @@ lyrr_platform/
 │   │   ├── core/        # Config, database, security
 │   │   ├── models/      # SQLAlchemy models
 │   │   ├── schemas/     # Pydantic schemas
-│   │   └── services/    # Business logic
+│   │   └── templates/   # Jinja2 admin portal
 │   ├── alembic/         # Database migrations
 │   ├── requirements.txt # Core dependencies
-│   ├── requirements-dev.txt    # Dev dependencies
-│   └── requirements-optional.txt # AI/ML, heavy deps
+│   └── requirements-dev.txt    # Dev dependencies
 ├── frontend/            # Flutter mobile app
-├── admin/               # Flutter Web admin portal
 ├── infrastructure/      # Docker configs
 │   ├── docker-compose.local.yml   # Local dev
 │   └── docker-compose.prod.yml    # Production

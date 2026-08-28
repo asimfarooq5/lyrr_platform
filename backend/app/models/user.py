@@ -21,6 +21,10 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
+    # Phone registration & verification (FRS §4)
+    phone = Column(String(20), unique=True, index=True, nullable=True)
+    phone_verified = Column(Boolean, default=False)
+    
     # OAuth fields
     google_id = Column(String(255), unique=True, nullable=True)
     apple_id = Column(String(255), unique=True, nullable=True)

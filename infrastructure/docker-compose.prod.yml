@@ -6,22 +6,25 @@
 version: '3.8'
 
 services:
-  # Backend API
+  # Backend API (also serves the Jinja2 admin portal at /admin)
   api:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: lyrr-api
     restart: unless-stopped
-    ports:
-      - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/lyrr
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@db:5432/lyrr
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
       - DEBUG=false
       - ENVIRONMENT=production
+      - CORS_ORIGINS=${CORS_ORIGINS:-["https://lyrr.app","https://admin.lyrr.app"]}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - S3_BUCKET=${S3_BUCKET:-lyrr-media}
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +34,7 @@ services:
       - lyrr-network
     volumes:
       - api-logs:/app/logs
+      - media-storage:/app/storage
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -49,8 +53,6 @@ services:
       - POSTGRES_DB=lyrr
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - lyrr-network
     healthcheck:
@@ -67,8 +69,6 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
     networks:
       - lyrr-network
     healthcheck:
@@ -88,8 +88,6 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
-    ports:
-      - "9200:9200"
     networks:
       - lyrr-network
     healthcheck:
@@ -97,6 +95,18 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+
+  # Flutter Web app
+  web:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: lyrr-web
+    restart: unless-stopped
+    networks:
+      - lyrr-network
+    depends_on:
+      - api
 
   # Nginx Reverse Proxy
   nginx:
@@ -108,9 +118,9 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - api
+      - web
     networks:
       - lyrr-network
 
@@ -119,6 +129,7 @@ volumes:
   redis-data:
   elasticsearch-data:
   api-logs:
+  media-storage:
 
 networks:
   lyrr-network:

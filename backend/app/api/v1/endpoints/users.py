@@ -1,18 +1,19 @@
 """
-User data endpoints - library, bookmarks, notes, progress
+User data endpoints - library, bookmarks, notes, progress, streaks
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc
-from typing import List
-from datetime import datetime
+from sqlalchemy import select, and_, desc, func as sa_func
+from typing import List, Optional
+from datetime import datetime, date, timedelta
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.models.book import Book, UserBook
 from app.models.user_data import Bookmark, Note, ReadingProgress
+from app.models.reading_session import ReadingSession
 from app.schemas.user_data import (
     BookmarkCreate, BookmarkUpdate, BookmarkResponse,
     NoteCreate, NoteUpdate, NoteResponse,
@@ -85,7 +86,7 @@ async def get_library(
 # Bookmarks
 @router.get("/bookmarks", response_model=List[BookmarkResponse])
 async def get_bookmarks(
-    book_id: str = None,
+    book_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -196,7 +197,7 @@ async def delete_bookmark(
 # Notes
 @router.get("/notes", response_model=List[NoteResponse])
 async def get_notes(
-    book_id: str = None,
+    book_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -329,7 +330,7 @@ async def update_progress(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Update reading progress"""
+    """Update reading progress and track daily reading session"""
     # Check if progress exists
     result = await db.execute(
         select(ReadingProgress).where(
@@ -348,15 +349,37 @@ async def update_progress(
         existing.position_seconds = progress.position_seconds
         existing.progress_percent = progress.progress_percent
         existing.last_read_at = datetime.utcnow()
-        existing.total_reading_time_seconds += 1  # Increment by 1 second (called periodically)
+        existing.total_reading_time_seconds += 10  # Called every 10s
         existing.sessions_count += 1
         existing.last_synced_at = datetime.utcnow()
+        
+        # Update daily reading session
+        today = date.today()
+        session_result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.user_id == current_user.id,
+                    ReadingSession.date == today
+                )
+            )
+        )
+        session = session_result.scalar_one_or_none()
+        if session:
+            session.duration_seconds += 10
+        else:
+            session = ReadingSession(
+                user_id=current_user.id,
+                book_id=progress.book_id,
+                date=today,
+                duration_seconds=10,
+            )
+            db.add(session)
         
         await db.commit()
         await db.refresh(existing)
         return existing
     else:
-        # Create new
+        # Create new progress entry
         new_progress = ReadingProgress(
             user_id=current_user.id,
             book_id=progress.book_id,
@@ -367,6 +390,28 @@ async def update_progress(
             device_id=progress.device_id,
             last_synced_at=datetime.utcnow()
         )
+        
+        # Track initial reading session (upsert: one session per user per day)
+        today = date.today()
+        session_result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.user_id == current_user.id,
+                    ReadingSession.date == today
+                )
+            )
+        )
+        session = session_result.scalar_one_or_none()
+        if session:
+            session.duration_seconds += 10
+        else:
+            session = ReadingSession(
+                user_id=current_user.id,
+                book_id=progress.book_id,
+                date=today,
+                duration_seconds=10,
+            )
+            db.add(session)
         
         db.add(new_progress)
         await db.commit()
@@ -407,3 +452,72 @@ async def get_reading_stats(
         favorite_genres=[],
         reading_streak_days=0
     )
+
+
+@router.get("/stats/streaks")
+async def get_reading_streaks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get daily reading streak data for the last 60 days"""
+    sixty_days_ago = date.today() - timedelta(days=60)
+    
+    result = await db.execute(
+        select(ReadingSession)
+        .where(
+            and_(
+                ReadingSession.user_id == current_user.id,
+                ReadingSession.date >= sixty_days_ago
+            )
+        )
+        .order_by(ReadingSession.date)
+    )
+    sessions = result.scalars().all()
+    
+    # Build daily map
+    daily_log = {}
+    for s in sessions:
+        daily_log[str(s.date)] = {
+            "duration_seconds": s.duration_seconds,
+            "book_id": s.book_id,
+        }
+    
+    # Calculate current streak
+    current_streak = 0
+    check_date = date.today()
+    while str(check_date) in daily_log:
+        current_streak += 1
+        check_date -= timedelta(days=1)
+    
+    # Calculate longest streak
+    dates = sorted(daily_log.keys())
+    longest_streak = 0
+    streak = 0
+    prev_date = None
+    for d in dates:
+        d_date = date.fromisoformat(d)
+        if prev_date and (d_date - prev_date).days == 1:
+            streak += 1
+        else:
+            streak = 1
+        longest_streak = max(longest_streak, streak)
+        prev_date = d_date
+    
+    # Generate last 60 days calendar
+    calendar = []
+    for i in range(60):
+        d = sixty_days_ago + timedelta(days=i)
+        d_str = str(d)
+        calendar.append({
+            "date": d_str,
+            "has_read": d_str in daily_log,
+            "duration_seconds": daily_log.get(d_str, {}).get("duration_seconds", 0),
+        })
+    
+    return {
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "total_days_read": len(daily_log),
+        "daily_goal_minutes": 30,
+        "calendar": calendar,
+    }
