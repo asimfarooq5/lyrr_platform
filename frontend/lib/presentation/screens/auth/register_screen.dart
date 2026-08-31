@@ -19,6 +19,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _phoneController = TextEditingController();
   
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -31,6 +32,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -54,6 +56,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       final result = await authService.register(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        phone: _phoneController.text.trim().isEmpty
+            ? null
+            : _phoneController.text.trim(),
       );
 
       if (result.success) {
@@ -169,6 +174,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     }
                     return null;
                   },
+                ),
+                const SizedBox(height: 16),
+
+                // Phone field (optional - for mobile money & verification)
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone number (optional)',
+                    hintText: '+2376XXXXXXXX',
+                    prefixIcon: Icon(Icons.phone_android),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 

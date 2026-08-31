@@ -410,4 +410,16 @@ class ApiEndpoints {
   static const String syncConflicts = '/sync/conflicts';
   static String syncResolve(String id) => '/sync/resolve/$id';
   static const String syncCheckpoint = '/sync/checkpoint';
+
+  // Payments (FRS §10)
+  static const String subscriptions = '/payments/subscriptions';
+  static const String paymentMethods = '/payments/methods';
+  static const String paymentCheckout = '/payments/checkout';
+  static const String paymentHistory = '/payments/history';
+  static String payment(String id) => '/payments/$id';
+  static String paymentConfirm(String id) => '/payments/$id/confirm';
+
+  // Verification (FRS §4)
+  static const String verifyRequest = '/auth/verify/request';
+  static const String verifyConfirm = '/auth/verify/confirm';
 }

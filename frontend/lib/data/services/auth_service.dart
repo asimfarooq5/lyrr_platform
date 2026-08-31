@@ -80,6 +80,7 @@ class AuthService extends ChangeNotifier {
   Future<ApiResponse<UserModel>> register({
     required String email,
     required String password,
+    String? phone,
     DeviceInfo? deviceInfo,
   }) async {
     try {
@@ -91,6 +92,7 @@ class AuthService extends ChangeNotifier {
           'email': email,
           'password': password,
           'device_info': (deviceInfo ?? await _getDeviceInfo()).toJson(),
+          if (phone != null && phone.isNotEmpty) 'phone': phone,
         },
         requiresAuth: false,
       );

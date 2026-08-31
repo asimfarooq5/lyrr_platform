@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
 import '../../../data/models/user_data_model.dart';
 import '../../theme/app_theme.dart';
+import 'subscribe_screen.dart';
+import 'payment_history_screen.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -110,6 +112,10 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
                 _buildStatsGrid(theme),
                 const SizedBox(height: 32),
               ],
+              
+              // Premium banner
+              _buildPremiumCard(theme),
+              const SizedBox(height: 32),
               
               // Menu items
               _buildMenuSection(theme),
@@ -215,6 +221,59 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
     );
   }
 
+  Widget _buildPremiumCard(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primary, AppColors.secondary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.workspace_premium, color: Colors.white, size: 40),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'LYRR Premium',
+                  style: theme.textTheme.titleLarge
+                      ?.copyWith(color: Colors.white),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Unlimited books with synchronized audio',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: Colors.white.withOpacity(0.9)),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SubscribeScreen(),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.primary,
+            ),
+            child: const Text('Subscribe'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMenuSection(ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,6 +289,19 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           subtitle: 'Manage offline books',
           onTap: () {
             // TODO: Navigate to downloads
+          },
+        ),
+        _MenuItem(
+          icon: Icons.receipt_long,
+          title: 'Payment History',
+          subtitle: 'Subscriptions and purchases',
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const PaymentHistoryScreen(),
+              ),
+            );
           },
         ),
         _MenuItem(

@@ -61,7 +61,6 @@ __pycache__/
 dist/
 .pytest_cache/
 .mypy_cache/
-
 # Environment files — NEVER commit real secrets
 .env
 *.env

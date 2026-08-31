@@ -9,6 +9,7 @@ import '../data/services/local_database.dart';
 import '../data/services/sync_service.dart';
 import '../data/services/drm_service.dart';
 import '../data/services/api_client.dart';
+import '../data/models/payment_model.dart';
 
 /// Shared preferences provider
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
@@ -92,6 +93,12 @@ final userDataRepositoryProvider = Provider((ref) {
     db: db,
     syncService: syncService,
   );
+});
+
+/// Payments repository provider
+final paymentsRepositoryProvider = Provider((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return PaymentsRepository(apiClient: apiClient);
 });
 
 /// Books repository
@@ -303,5 +310,88 @@ class UserDataRepository {
     }
 
     return null;
+  }
+}
+
+/// Payments repository - subscriptions, checkout, history (FRS §10)
+class PaymentsRepository {
+  final ApiClient apiClient;
+
+  PaymentsRepository({required this.apiClient});
+
+  /// List active subscription plans
+  Future<List<SubscriptionPlanModel>> getSubscriptionPlans() async {
+    final response = await apiClient.get<List<dynamic>>(
+      ApiEndpoints.subscriptions,
+    );
+    if (response.success && response.data != null) {
+      return response.data!
+          .map((p) => SubscriptionPlanModel.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// List supported payment methods
+  Future<List<PaymentMethodModel>> getPaymentMethods() async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.paymentMethods,
+    );
+    if (response.success && response.data != null) {
+      final methods = response.data!['methods'] as List<dynamic>? ?? [];
+      return methods
+          .map((m) => PaymentMethodModel.fromJson(m as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Start a checkout for a book or subscription plan
+  Future<PaymentModel> checkout({
+    required String method,
+    required String itemType, // 'book' | 'subscription'
+    String? bookId,
+    String? planId,
+    String? phone,
+  }) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.paymentCheckout,
+      body: {
+        'method': method,
+        'item_type': itemType,
+        if (bookId != null) 'book_id': bookId,
+        if (planId != null) 'plan_id': planId,
+        if (phone != null) 'phone': phone,
+      },
+    );
+    if (response.success && response.data != null) {
+      return PaymentModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Checkout failed');
+  }
+
+  /// Confirm a payment (mobile money approval / gateway callback)
+  Future<PaymentModel> confirmPayment(String paymentId) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.paymentConfirm(paymentId),
+      body: const {},
+    );
+    if (response.success && response.data != null) {
+      return PaymentModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Payment confirmation failed');
+  }
+
+  /// Get the user's payment history
+  Future<List<PaymentModel>> getPaymentHistory() async {
+    final response = await apiClient.get<List<dynamic>>(
+      ApiEndpoints.paymentHistory,
+    );
+    if (response.success && response.data != null) {
+      return response.data!
+          .map((p) => PaymentModel.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
   }
 }

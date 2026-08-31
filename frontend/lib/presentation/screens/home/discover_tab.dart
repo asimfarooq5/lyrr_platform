@@ -86,17 +86,146 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
 
   Future<void> _purchaseBook(BookModel book) async {
     try {
-      final repo = ref.read(booksRepositoryProvider);
-      await repo.purchaseBook(book.id);
-      
+      final repo = ref.read(paymentsRepositoryProvider);
+
+      // Show payment method sheet (pay-per-book, FRS §10)
+      final method = await _showPaymentMethodSheet(book);
+      if (method == null) return;
+
+      final payment = await repo.checkout(
+        method: method,
+        itemType: 'book',
+        bookId: book.id,
+      );
+
+      // Mobile money needs confirmation
+      if (payment.isPending) {
+        final confirmed = await _confirmPaymentDialog(payment);
+        if (confirmed == true) {
+          await repo.confirmPayment(payment.id);
+        }
+      }
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${book.title} added to your library')),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to purchase: $e')),
+        SnackBar(content: Text('Failed to purchase: ${e.toString().replaceAll('Exception: ', '')}')),
       );
     }
+  }
+
+  /// Let the user choose how to pay for a single book.
+  Future<String?> _showPaymentMethodSheet(BookModel book) async {
+    final repo = ref.read(paymentsRepositoryProvider);
+    final methods = await repo.getPaymentMethods();
+    if (methods.isEmpty) return 'card';
+
+    String? phone;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        String? choice = methods.first.id;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Buy "${book.title}"',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Text('Choose payment method',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 16),
+                    ...methods.map((m) => RadioListTile<String>(
+                          value: m.id,
+                          groupValue: choice,
+                          onChanged: (v) => setSheetState(() => choice = v),
+                          title: Text(m.name),
+                        )),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, choice),
+                      child: const Text('Continue'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected == null) return null;
+
+    // Mobile money requires a phone number
+    if (selected != 'card') {
+      phone = await _promptPhone(selected);
+      if (phone == null) return null;
+    }
+
+    return selected;
+  }
+
+  Future<String?> _promptPhone(String methodName) async {
+    final controller = TextEditingController();
+    final phone = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('$methodName number'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Phone number',
+            hintText: '+2376XXXXXXXX',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Pay'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return (phone == null || phone.isEmpty) ? null : phone;
+  }
+
+  Future<bool?> _confirmPaymentDialog(dynamic payment) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm payment'),
+        content: Text(
+          'Your payment is awaiting approval on your mobile money wallet. '
+          'Confirm to complete (sandbox mode).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

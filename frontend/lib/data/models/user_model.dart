@@ -15,6 +15,8 @@ class UserModel {
   final bool isAdmin;
   final DateTime createdAt;
   final DateTime? updatedAt;
+  final String? phone;
+  final bool phoneVerified;
 
   UserModel({
     required this.id,
@@ -27,6 +29,8 @@ class UserModel {
     this.isAdmin = false,
     required this.createdAt,
     this.updatedAt,
+    this.phone,
+    this.phoneVerified = false,
   });
 
   String get fullName => '${firstName ?? ''} ${lastName ?? ''}'.trim();
@@ -43,6 +47,8 @@ class UserModel {
     'is_admin': isAdmin,
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
+    'phone': phone,
+    'phone_verified': phoneVerified,
   };
 
   factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
@@ -58,6 +64,8 @@ class UserModel {
     updatedAt: json['updated_at'] != null 
         ? DateTime.parse(json['updated_at']) 
         : null,
+    phone: json['phone'],
+    phoneVerified: json['phone_verified'] ?? false,
   );
 
   String toRawJson() => jsonEncode(toJson());
@@ -74,6 +82,8 @@ class UserModel {
     bool? isAdmin,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? phone,
+    bool? phoneVerified,
   }) => UserModel(
     id: id ?? this.id,
     email: email ?? this.email,
@@ -85,6 +95,8 @@ class UserModel {
     isAdmin: isAdmin ?? this.isAdmin,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    phone: phone ?? this.phone,
+    phoneVerified: phoneVerified ?? this.phoneVerified,
   );
 }
 
