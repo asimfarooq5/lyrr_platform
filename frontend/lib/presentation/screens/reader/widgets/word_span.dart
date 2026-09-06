@@ -3,6 +3,7 @@
 /// Individual word with highlighting, bookmark, note indicators, and tap handling
 /// Uses lightweight TextSpan for neutral words and WidgetSpan for decorated words
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:lyrr/data/models/book_model.dart';
@@ -17,9 +18,37 @@ class WordSpan extends TextSpan {
     required super.text,
     super.style,
     VoidCallback? onTap,
+    VoidCallback? onLongPress,
   }) : super(
-    recognizer: TapGestureRecognizer()..onTap = onTap ?? () {},
+    recognizer: _buildRecognizer(onTap, onLongPress),
   );
+
+  /// A single TapGestureRecognizer can only carry one callback, so short tap
+  /// vs. long press (word lookup) is told apart manually by how long the
+  /// finger stays down - this keeps normal reading taps doing what they did
+  /// before (nothing for a neutral word), while a deliberate long-press
+  /// still reaches the dictionary/highlight/note sheet.
+  static GestureRecognizer _buildRecognizer(VoidCallback? onTap, VoidCallback? onLongPress) {
+    Timer? longPressTimer;
+    var longPressFired = false;
+    return TapGestureRecognizer()
+      ..onTapDown = (_) {
+        longPressFired = false;
+        if (onLongPress != null) {
+          longPressTimer = Timer(const Duration(milliseconds: 450), () {
+            longPressFired = true;
+            onLongPress();
+          });
+        }
+      }
+      ..onTapUp = (_) {
+        longPressTimer?.cancel();
+        if (!longPressFired) onTap?.call();
+      }
+      ..onTapCancel = () {
+        longPressTimer?.cancel();
+      };
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -41,6 +70,7 @@ class WordWidget extends WidgetSpan {
   final bool hasNote;
   final Color? highlightColor;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final TextStyle textStyle;
   final String? text;
 
@@ -51,6 +81,7 @@ class WordWidget extends WidgetSpan {
     required this.hasNote,
     this.highlightColor,
     required this.onTap,
+    this.onLongPress,
     required this.textStyle,
     this.text,
   }) : super(
@@ -63,6 +94,7 @@ class WordWidget extends WidgetSpan {
       hasNote: hasNote,
       highlightColor: highlightColor,
       onTap: onTap,
+      onLongPress: onLongPress,
       textStyle: textStyle,
       text: text,
     ),
@@ -76,6 +108,7 @@ class _WordHighlightWidget extends StatefulWidget {
   final bool hasNote;
   final Color? highlightColor;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final TextStyle textStyle;
   final String? text;
 
@@ -86,6 +119,7 @@ class _WordHighlightWidget extends StatefulWidget {
     required this.hasNote,
     this.highlightColor,
     required this.onTap,
+    this.onLongPress,
     required this.textStyle,
     this.text,
   });
@@ -109,6 +143,7 @@ class _WordHighlightWidgetState extends State<_WordHighlightWidget> {
 
     return GestureDetector(
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: AnimatedScale(
         scale: widget.isHighlighted ? AppAnimations.highlightScale : 1.0,
         duration: AppAnimations.highlight,

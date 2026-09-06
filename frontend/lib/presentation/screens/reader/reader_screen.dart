@@ -1383,18 +1383,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               hasBookmark: hasBookmark,
               hasNote: hasNote,
               highlightColor: isCurrentWord ? _highlightColor : null,
-              onTap: () => _showWordActionSheet(word),
+              onTap: () => _seekToWord(word.id),
+              onLongPress: () => _showWordActionSheet(word),
               textStyle: textStyle,
               text: wordText,
             );
           }
 
-          // Use lightweight TextSpan for neutral words
+          // Use lightweight TextSpan for neutral words. Tap does nothing
+          // (matches the original reading experience); long-press opens the
+          // dictionary/highlight/note sheet so casual reading isn't
+          // interrupted by every tap.
           return WordSpan(
             text: wordText,
             wordData: word,
             style: textStyle,
-            onTap: () => _showWordActionSheet(word),
+            onLongPress: () => _showWordActionSheet(word),
           );
         }).toList(),
       ),

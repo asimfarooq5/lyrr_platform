@@ -108,7 +108,10 @@ def generate_audio_tone(filename_stub: str, seconds: int = 12, frequency: float 
             # Gentle fade in/out so it doesn't click, two-tone chime pattern.
             envelope = min(1.0, t * 4, (seconds - t) * 4)
             tone = frequency if (i // sample_rate) % 2 == 0 else frequency * 1.5
-            sample = int(3000 * envelope * math.sin(2 * math.pi * tone * t))
+            # Loud enough to be clearly audible on a phone speaker at normal
+            # volume (previous 3000 amplitude was too quiet to notice — an
+            # easy "no sound" false alarm).
+            sample = int(18000 * envelope * math.sin(2 * math.pi * tone * t))
             frames += struct.pack("<h", sample)
         wav_file.writeframes(bytes(frames))
 
