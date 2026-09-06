@@ -61,7 +61,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _isLoading = true;
   String? _error;
   int _currentChapterIndex = 0;
-  String? _currentWordId;
+  String? _currentWordId; // tracks the audio-sync playhead / reading position
+  String? _selectedWordId; // tracks the word tapped for highlight/note/define
   bool _showControls = false; // Kindle-style: hidden by default
   bool _isFullscreen = false;
   bool _showBookmarksDrawer = false;
@@ -568,7 +569,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   /// Kindle-style tap-to-define: tapping a word shows a compact action sheet
   /// with a dictionary lookup plus the existing highlight/note/seek actions.
   void _showWordActionSheet(WordModel word) {
-    setState(() => _currentWordId = word.id);
+    setState(() => _selectedWordId = word.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -638,13 +639,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _addBookmark() async {
-    if (_currentWordId == null) return;
+    if (_selectedWordId == null) return;
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => BookmarkDialog(
-        wordId: _currentWordId!,
+        wordId: _selectedWordId!,
         existingBookmark: _bookmarks.firstWhere(
-          (b) => b.wordId == _currentWordId,
+          (b) => b.wordId == _selectedWordId,
           orElse: () => null as BookmarkModel,
         ),
       ),
@@ -654,16 +655,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result['delete'] == true) {
-          setState(() { _bookmarks.removeWhere((b) => b.wordId == _currentWordId); });
+          setState(() { _bookmarks.removeWhere((b) => b.wordId == _selectedWordId); });
         } else {
           final bookmark = await syncService.createBookmark(
-            userId: user!.id, bookId: widget.bookId, wordId: _currentWordId!,
+            userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
             chapterId: _chapters[_currentChapterIndex].id,
             positionSeconds: _currentPosition.inMilliseconds / 1000.0,
             note: result['note'], color: result['color'],
           );
           setState(() {
-            _bookmarks.removeWhere((b) => b.wordId == _currentWordId);
+            _bookmarks.removeWhere((b) => b.wordId == _selectedWordId);
             _bookmarks.add(bookmark);
           });
         }
@@ -676,13 +677,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _addNote() async {
-    if (_currentWordId == null) return;
+    if (_selectedWordId == null) return;
     final result = await showDialog<String>(
       context: context,
       builder: (_) => NoteDialog(
-        wordId: _currentWordId!,
+        wordId: _selectedWordId!,
         existingNote: _notes.firstWhere(
-          (n) => n.wordId == _currentWordId,
+          (n) => n.wordId == _selectedWordId,
           orElse: () => null as NoteModel,
         ),
       ),
@@ -692,14 +693,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result.isEmpty) {
-          setState(() { _notes.removeWhere((n) => n.wordId == _currentWordId); });
+          setState(() { _notes.removeWhere((n) => n.wordId == _selectedWordId); });
         } else {
           final note = await syncService.createNote(
-            userId: user!.id, bookId: widget.bookId, wordId: _currentWordId!,
+            userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
             content: result, chapterId: _chapters[_currentChapterIndex].id,
           );
           setState(() {
-            _notes.removeWhere((n) => n.wordId == _currentWordId);
+            _notes.removeWhere((n) => n.wordId == _selectedWordId);
             _notes.add(note);
           });
         }

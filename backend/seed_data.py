@@ -6,10 +6,13 @@ Run: alembic upgrade head && python seed_data.py
 
 import asyncio
 import json
+import math
 import os
 import random
+import struct
 import sys
 import uuid
+import wave
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -20,6 +23,96 @@ from app.models.content import SubscriptionPlan
 from app.models.user import User
 from app.core.security import get_password_hash
 from app.core.config import settings
+
+STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
+COVERS_DIR = os.path.join(STORAGE_DIR, "covers")
+AUDIO_DIR = os.path.join(STORAGE_DIR, "audio")
+os.makedirs(COVERS_DIR, exist_ok=True)
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# Deterministic per-book accent colors so covers look distinct, not random.
+_COVER_PALETTE = [
+    (0x6B, 0x4E, 0xFF), (0x00, 0xD9, 0xC0), (0xFF, 0x6B, 0x6B),
+    (0xFF, 0xB4, 0x00), (0x3B, 0x82, 0xF6), (0x10, 0xB9, 0x81),
+]
+
+
+def generate_cover(book_id: str, title: str, author: str) -> str:
+    """Create a placeholder cover (solid color + title/author) and return
+    its filename, so book.cover_url can point at a real, servable image
+    instead of staying null."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    color = _COVER_PALETTE[abs(hash(book_id)) % len(_COVER_PALETTE)]
+    width, height = 600, 900
+    img = Image.new("RGB", (width, height), color)
+    draw = ImageDraw.Draw(img)
+
+    try:
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
+        author_font = ImageFont.truetype("DejaVuSans.ttf", 30)
+    except OSError:
+        title_font = ImageFont.load_default()
+        author_font = ImageFont.load_default()
+
+    def wrap(text: str, font, max_width: int) -> list[str]:
+        words, lines, current = text.split(), [], ""
+        for w in words:
+            trial = f"{current} {w}".strip()
+            if draw.textlength(trial, font=font) <= max_width:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+        return lines
+
+    title_lines = wrap(title, title_font, width - 80)
+    y = height / 2 - (len(title_lines) * 56) / 2
+    for line in title_lines:
+        w = draw.textlength(line, font=title_font)
+        draw.text(((width - w) / 2, y), line, font=title_font, fill="white")
+        y += 56
+
+    author_text = author.upper()
+    w = draw.textlength(author_text, font=author_font)
+    draw.text(((width - w) / 2, y + 24), author_text, font=author_font, fill=(255, 255, 255, 200))
+
+    filename = f"{book_id}.jpg"
+    img.save(os.path.join(COVERS_DIR, filename), "JPEG", quality=85)
+    return filename
+
+
+def generate_audio_tone(filename_stub: str, seconds: int = 12, frequency: float = 220.0) -> tuple[str, int]:
+    """Create a short audible WAV tone and return (filename, duration_seconds).
+
+    This is a placeholder for real narration audio: it proves the full
+    upload -> storage -> stream -> playback pipeline works end to end
+    without needing real audio files or bloating disk on a constrained
+    demo host (a few seconds per chapter vs. hours of real narration).
+    """
+    sample_rate = 22050
+    n_samples = sample_rate * seconds
+    filename = f"{filename_stub}.wav"
+    path = os.path.join(AUDIO_DIR, filename)
+
+    with wave.open(path, "w") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+        for i in range(n_samples):
+            t = i / sample_rate
+            # Gentle fade in/out so it doesn't click, two-tone chime pattern.
+            envelope = min(1.0, t * 4, (seconds - t) * 4)
+            tone = frequency if (i // sample_rate) % 2 == 0 else frequency * 1.5
+            sample = int(3000 * envelope * math.sin(2 * math.pi * tone * t))
+            frames += struct.pack("<h", sample)
+        wav_file.writeframes(bytes(frames))
+
+    return filename, seconds
 
 # Admin/demo credentials come from the environment; the defaults below are
 # for LOCAL DEVELOPMENT ONLY. The script refuses to run with them in production.
@@ -213,6 +306,7 @@ async def seed():
         # Create books
         for i, book_data in enumerate(SAMPLE_BOOKS):
             book_id = str(uuid.uuid4())
+            cover_filename = generate_cover(book_id, book_data["title"], book_data["author"])
             book = Book(
                 id=book_id,
                 title=book_data["title"],
@@ -224,6 +318,7 @@ async def seed():
                 status=BookStatus.PUBLISHED,
                 is_featured=book_data["is_featured"],
                 price=book_data.get("price"),
+                cover_url=f"/media/covers/{cover_filename}",
                 drm_enabled=False,
             )
             session.add(book)
@@ -255,16 +350,18 @@ async def seed():
                 )
                 session.add(chapter)
 
-                # Add media entry
-                media_duration = int(len(words_in_chapter) * 0.33)
+                # Add media entry - a short real audio clip so playback
+                # actually works, instead of a placeholder domain that was
+                # never a real server (audio.lyrr.app never existed).
+                audio_filename, real_duration = generate_audio_tone(f"{book_id}-{chapter_id}")
                 media = BookMedia(
                     id=str(uuid.uuid4()),
                     book_id=book_id,
-                    audio_url=f"https://audio.lyrr.app/books/{book_id}/{chapter_id}.mp3",
-                    format="mp3",
+                    audio_url=f"/media/audio/{audio_filename}",
+                    format="wav",
                     quality="high",
-                    duration=media_duration,
-                    size_bytes=media_duration * 16000,
+                    duration=real_duration,
+                    size_bytes=os.path.getsize(os.path.join(AUDIO_DIR, audio_filename)),
                     is_ai_narrated=True,
                     voice_id="pNInz6obpgDQGcFmaJgB",
                     is_encrypted=False,

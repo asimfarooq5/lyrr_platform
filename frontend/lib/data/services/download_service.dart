@@ -75,6 +75,12 @@ class DownloadService {
     _emit(bookId, const DownloadProgress(state: DownloadState.downloading, progress: 0.0));
 
     try {
+      // 0. The book itself must exist locally first - chapters reference it
+      // by id, and updateBookDownloadStatus/getLocalAudioPath below only
+      // work if this row exists (books opened from the Store/Library come
+      // from the server API, not local SQLite, so this row is often new).
+      await _db.insertBook(book);
+
       // 1. Text content -> local DB (drives offline reading)
       final contentResponse = await _apiClient.get<Map<String, dynamic>>(
         ApiEndpoints.bookContent(bookId),

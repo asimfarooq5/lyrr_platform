@@ -63,10 +63,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
       if (result.success) {
         // Auto-login after registration
-        await authService.login(
+        final loginResult = await authService.login(
           email: _emailController.text.trim(),
           password: _passwordController.text,
         );
+        // On success, AppNavigator reactively swaps to HomeScreen and this
+        // screen is disposed. On failure, surface it instead of leaving the
+        // button stuck spinning forever.
+        if (!loginResult.success && mounted) {
+          setState(() {
+            _errorMessage = loginResult.error ?? 'Account created — please sign in';
+            _isLoading = false;
+          });
+        }
       } else {
         setState(() {
           _errorMessage = result.error ?? 'Registration failed';

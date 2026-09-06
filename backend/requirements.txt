@@ -49,3 +49,7 @@ openpyxl==3.1.2
 # EPUB Parsing
 beautifulsoup4==4.12.3
 lxml==5.1.0
+
+# Image generation for seed_data.py placeholder covers (runs inside the
+# deployed container via `python seed_data.py`)
+Pillow==10.2.0

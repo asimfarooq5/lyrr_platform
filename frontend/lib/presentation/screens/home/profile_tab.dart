@@ -9,6 +9,8 @@ import '../../../data/models/user_data_model.dart';
 import '../../theme/app_theme.dart';
 import 'subscribe_screen.dart';
 import 'payment_history_screen.dart';
+import 'downloads_screen.dart';
+import 'sync_screen.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -174,9 +176,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           
           // Edit profile button
           TextButton(
-            onPressed: () {
-              // TODO: Edit profile
-            },
+            onPressed: () => _comingSoon(context, 'Editing your profile'),
             child: const Text('Edit Profile'),
           ),
         ],
@@ -288,7 +288,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           title: 'Downloads',
           subtitle: 'Manage offline books',
           onTap: () {
-            // TODO: Navigate to downloads
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadsScreen()));
           },
         ),
         _MenuItem(
@@ -309,50 +309,51 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           title: 'Sync',
           subtitle: 'Cloud synchronization settings',
           onTap: () {
-            // TODO: Navigate to sync settings
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const SyncScreen()));
           },
         ),
         _MenuItem(
           icon: Icons.notifications_outlined,
           title: 'Notifications',
           subtitle: 'Manage notification preferences',
-          onTap: () {
-            // TODO: Navigate to notifications
-          },
+          onTap: () => _comingSoon(context, 'Notification preferences'),
         ),
         _MenuItem(
           icon: Icons.language,
           title: 'Language',
           subtitle: 'App language and content language',
-          onTap: () {
-            // TODO: Navigate to language settings
-          },
+          onTap: () => _comingSoon(context, 'Language settings'),
         ),
         _MenuItem(
           icon: Icons.help_outline,
           title: 'Help & Support',
           subtitle: 'FAQs, contact support',
-          onTap: () {
-            // TODO: Navigate to help
-          },
+          onTap: () => _comingSoon(context, 'Help & Support'),
         ),
         _MenuItem(
           icon: Icons.privacy_tip_outlined,
           title: 'Privacy & Security',
           subtitle: 'Privacy policy, data settings',
-          onTap: () {
-            // TODO: Navigate to privacy
-          },
+          onTap: () => _comingSoon(context, 'Privacy & Security'),
         ),
         _MenuItem(
           icon: Icons.info_outline,
           title: 'About',
           subtitle: 'App version, terms of service',
-          onTap: () {
-            // TODO: Navigate to about
-          },
+          onTap: () => showAboutDialog(
+            context: context,
+            applicationName: 'LYRR',
+            applicationVersion: '1.0.0',
+            applicationLegalese: '© 2026 LYRR Platform',
+          ),
         ),
       ],
+    );
+  }
+
+  void _comingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is coming soon')),
     );
   }
 }
