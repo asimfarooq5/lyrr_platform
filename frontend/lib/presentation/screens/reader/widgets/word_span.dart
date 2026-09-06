@@ -16,8 +16,9 @@ class WordSpan extends TextSpan {
     required this.wordData,
     required super.text,
     super.style,
+    VoidCallback? onTap,
   }) : super(
-    recognizer: TapGestureRecognizer()..onTap = () {},
+    recognizer: TapGestureRecognizer()..onTap = onTap ?? () {},
   );
 
   @override

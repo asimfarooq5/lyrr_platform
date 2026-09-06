@@ -13,6 +13,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import '../../../providers/app_providers.dart';
 import '../../../data/models/book_model.dart';
 import '../../../data/models/user_data_model.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/drm_service.dart';
 import '../../theme/app_theme.dart';
 import 'widgets/word_span.dart';
@@ -21,6 +22,7 @@ import 'widgets/bookmark_dialog.dart';
 import 'widgets/note_dialog.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/chapter_list_drawer.dart';
+import 'widgets/word_action_sheet.dart';
 
 enum ReadingMode { light, sepia, dark, green }
 
@@ -528,6 +530,39 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final syncWord = _syncData.firstWhere((s) => s.id == wordId);
       await _audioPlayer.seek(Duration(milliseconds: (syncWord.start * 1000).round()));
     } catch (_) {}
+  }
+
+  /// Kindle-style tap-to-define: tapping a word shows a compact action sheet
+  /// with a dictionary lookup plus the existing highlight/note/seek actions.
+  void _showWordActionSheet(WordModel word) {
+    setState(() => _currentWordId = word.id);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _readingBg,
+      builder: (_) => WordActionSheet(
+        word: word,
+        language: _book?.language ?? 'en',
+        hasBookmark: _bookmarks.any((b) => b.wordId == word.id),
+        hasNote: _notes.any((n) => n.wordId == word.id),
+        onHighlight: () { Navigator.pop(context); _addBookmark(); },
+        onNote: () { Navigator.pop(context); _addNote(); },
+        onPlayFromHere: () { Navigator.pop(context); _seekToWord(word.id); },
+        defineWord: _defineWord,
+      ),
+    );
+  }
+
+  Future<DictionaryEntry> _defineWord(String word, String language) async {
+    final apiClient = ref.read(apiClientProvider);
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.dictionary(word),
+      queryParams: {'lang': language},
+    );
+    if (response.success && response.data != null) {
+      return DictionaryEntry.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'No definition found');
   }
 
   Future<void> _saveProgress() async {
@@ -1265,7 +1300,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               hasBookmark: hasBookmark,
               hasNote: hasNote,
               highlightColor: isCurrentWord ? _highlightColor : null,
-              onTap: () => _seekToWord(word.id),
+              onTap: () => _showWordActionSheet(word),
               textStyle: textStyle,
               text: wordText,
             );
@@ -1276,6 +1311,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             text: wordText,
             wordData: word,
             style: textStyle,
+            onTap: () => _showWordActionSheet(word),
           );
         }).toList(),
       ),

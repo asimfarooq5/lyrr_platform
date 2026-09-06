@@ -422,4 +422,7 @@ class ApiEndpoints {
   // Verification (FRS §4)
   static const String verifyRequest = '/auth/verify/request';
   static const String verifyConfirm = '/auth/verify/confirm';
+
+  // Dictionary (Kindle-style tap-to-define)
+  static String dictionary(String word) => '/dictionary/${Uri.encodeComponent(word)}';
 }

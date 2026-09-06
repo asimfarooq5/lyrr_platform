@@ -246,3 +246,32 @@ class DRMLicenseModel {
     encryptionKeyId: json['encryption_key_id'] as String?,
   );
 }
+
+/// Kindle-style tap-to-define dictionary entry
+class DictionaryMeaning {
+  final String partOfSpeech;
+  final List<String> definitions;
+
+  DictionaryMeaning({required this.partOfSpeech, required this.definitions});
+
+  factory DictionaryMeaning.fromJson(Map<String, dynamic> json) => DictionaryMeaning(
+    partOfSpeech: (json['part_of_speech'] ?? '') as String,
+    definitions: (json['definitions'] as List? ?? []).map((d) => d.toString()).toList(),
+  );
+}
+
+class DictionaryEntry {
+  final String word;
+  final String? phonetic;
+  final List<DictionaryMeaning> meanings;
+
+  DictionaryEntry({required this.word, this.phonetic, required this.meanings});
+
+  factory DictionaryEntry.fromJson(Map<String, dynamic> json) => DictionaryEntry(
+    word: (json['word'] ?? '') as String,
+    phonetic: json['phonetic'] as String?,
+    meanings: (json['meanings'] as List? ?? [])
+        .map((m) => DictionaryMeaning.fromJson(m as Map<String, dynamic>))
+        .toList(),
+  );
+}
