@@ -425,4 +425,10 @@ class ApiEndpoints {
 
   // Dictionary (Kindle-style tap-to-define)
   static String dictionary(String word) => '/dictionary/${Uri.encodeComponent(word)}';
+
+  // Collections (Kindle-style shelves)
+  static const String collections = '/me/collections';
+  static String collectionBook(String collectionId, String bookId) =>
+      '/me/collections/$collectionId/books/$bookId';
+  static String deleteCollection(String collectionId) => '/me/collections/$collectionId';
 }

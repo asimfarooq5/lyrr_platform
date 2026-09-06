@@ -12,13 +12,14 @@ from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.models.book import Book, UserBook
-from app.models.user_data import Bookmark, Note, ReadingProgress
+from app.models.user_data import Bookmark, Note, ReadingProgress, Collection, CollectionBook
 from app.models.reading_session import ReadingSession
 from app.schemas.user_data import (
     BookmarkCreate, BookmarkUpdate, BookmarkResponse,
     NoteCreate, NoteUpdate, NoteResponse,
     ReadingProgressCreate, ReadingProgressUpdate, ReadingProgressResponse,
-    UserLibraryResponse, UserLibraryBook, ReadingStats
+    UserLibraryResponse, UserLibraryBook, ReadingStats,
+    CollectionCreate, CollectionResponse, CollectionBookSummary,
 )
 
 router = APIRouter()
@@ -521,3 +522,120 @@ async def get_reading_streaks(
         "daily_goal_minutes": 30,
         "calendar": calendar,
     }
+
+
+# ---- Collections (Kindle-style shelves) ----
+
+async def _collection_response(db: AsyncSession, collection: Collection) -> CollectionResponse:
+    rows = await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url)
+        .join(CollectionBook, CollectionBook.book_id == Book.id)
+        .where(CollectionBook.collection_id == collection.id)
+        .order_by(CollectionBook.added_at.desc())
+    )
+    books = [
+        CollectionBookSummary(book_id=r.id, title=r.title, author=r.author, cover_url=r.cover_url)
+        for r in rows.all()
+    ]
+    return CollectionResponse(
+        id=collection.id, name=collection.name, created_at=collection.created_at, books=books,
+    )
+
+
+@router.get("/collections", response_model=List[CollectionResponse])
+async def list_collections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List the user's custom collections/shelves."""
+    result = await db.execute(
+        select(Collection).where(Collection.user_id == current_user.id)
+        .order_by(Collection.created_at)
+    )
+    collections = result.scalars().all()
+    return [await _collection_response(db, c) for c in collections]
+
+
+@router.post("/collections", response_model=CollectionResponse, status_code=status.HTTP_201_CREATED)
+async def create_collection(
+    data: CollectionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    collection = Collection(user_id=current_user.id, name=data.name.strip())
+    db.add(collection)
+    await db.commit()
+    await db.refresh(collection)
+    return await _collection_response(db, collection)
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    await db.delete(collection)
+    await db.commit()
+    return {"message": "Collection deleted"}
+
+
+@router.post("/collections/{collection_id}/books/{book_id}", response_model=CollectionResponse)
+async def add_book_to_collection(
+    collection_id: str,
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    existing = await db.execute(
+        select(CollectionBook).where(
+            CollectionBook.collection_id == collection_id, CollectionBook.book_id == book_id
+        )
+    )
+    if not existing.scalar_one_or_none():
+        db.add(CollectionBook(collection_id=collection_id, book_id=book_id))
+        await db.commit()
+
+    return await _collection_response(db, collection)
+
+
+@router.delete("/collections/{collection_id}/books/{book_id}", response_model=CollectionResponse)
+async def remove_book_from_collection(
+    collection_id: str,
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    await db.execute(
+        CollectionBook.__table__.delete().where(
+            CollectionBook.collection_id == collection_id, CollectionBook.book_id == book_id
+        )
+    )
+    await db.commit()
+    return await _collection_response(db, collection)

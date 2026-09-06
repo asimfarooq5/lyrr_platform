@@ -247,6 +247,43 @@ class DRMLicenseModel {
   );
 }
 
+/// Kindle-style Collections (shelves)
+class CollectionBookSummary {
+  final String bookId;
+  final String title;
+  final String author;
+  final String? coverUrl;
+
+  CollectionBookSummary({required this.bookId, required this.title, required this.author, this.coverUrl});
+
+  factory CollectionBookSummary.fromJson(Map<String, dynamic> json) => CollectionBookSummary(
+    bookId: (json['book_id'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    author: (json['author'] ?? '') as String,
+    coverUrl: json['cover_url'] as String?,
+  );
+}
+
+class CollectionModel {
+  final String id;
+  final String name;
+  final DateTime createdAt;
+  final List<CollectionBookSummary> books;
+
+  CollectionModel({required this.id, required this.name, required this.createdAt, this.books = const []});
+
+  factory CollectionModel.fromJson(Map<String, dynamic> json) => CollectionModel(
+    id: (json['id'] ?? '') as String,
+    name: (json['name'] ?? '') as String,
+    createdAt: json['created_at'] != null
+        ? DateTime.parse((json['created_at'] as String).replaceAll('+00:00', 'Z'))
+        : DateTime.now(),
+    books: (json['books'] as List? ?? [])
+        .map((b) => CollectionBookSummary.fromJson(b as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
 /// Kindle-style tap-to-define dictionary entry
 class DictionaryMeaning {
   final String partOfSpeech;

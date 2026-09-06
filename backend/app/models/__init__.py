@@ -1,7 +1,7 @@
 # Models module
 from .user import User, UserProfile, UserDevice
 from .book import Book, Chapter, BookMedia, UserBook
-from .user_data import Bookmark, Note, ReadingProgress, UserSettings, SearchHistory
+from .user_data import Bookmark, Note, ReadingProgress, UserSettings, SearchHistory, Collection, CollectionBook
 from .sync import SyncQueue, SyncConflict, SyncCheckpoint
 from .content import Category, Author, BookCategory, SubscriptionPlan, UserSubscription, Payment
 from .reading_session import ReadingSession
@@ -19,6 +19,8 @@ __all__ = [
     "ReadingProgress",
     "UserSettings",
     "SearchHistory",
+    "Collection",
+    "CollectionBook",
     "SyncQueue",
     "SyncConflict",
     "SyncCheckpoint",

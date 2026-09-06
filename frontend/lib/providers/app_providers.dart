@@ -11,6 +11,7 @@ import '../data/services/drm_service.dart';
 import '../data/services/download_service.dart';
 import '../data/services/api_client.dart';
 import '../data/models/payment_model.dart';
+import '../data/models/book_model.dart';
 
 /// Shared preferences provider
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
@@ -109,6 +110,12 @@ final userDataRepositoryProvider = Provider((ref) {
 final paymentsRepositoryProvider = Provider((ref) {
   final apiClient = ref.watch(apiClientProvider);
   return PaymentsRepository(apiClient: apiClient);
+});
+
+/// Collections repository provider (Kindle-style shelves)
+final collectionsRepositoryProvider = Provider((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return CollectionsRepository(apiClient: apiClient);
 });
 
 /// Books repository
@@ -420,5 +427,57 @@ class PaymentsRepository {
           .toList();
     }
     return [];
+  }
+}
+
+/// Collections repository - Kindle-style shelves
+class CollectionsRepository {
+  final ApiClient apiClient;
+
+  CollectionsRepository({required this.apiClient});
+
+  Future<List<CollectionModel>> getCollections() async {
+    final response = await apiClient.get<List<dynamic>>(ApiEndpoints.collections);
+    if (response.success && response.data != null) {
+      return response.data!
+          .map((c) => CollectionModel.fromJson(c as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<CollectionModel> createCollection(String name) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.collections,
+      body: {'name': name},
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to create collection');
+  }
+
+  Future<void> deleteCollection(String collectionId) async {
+    await apiClient.delete(ApiEndpoints.deleteCollection(collectionId));
+  }
+
+  Future<CollectionModel> addBook(String collectionId, String bookId) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.collectionBook(collectionId, bookId),
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to add book to collection');
+  }
+
+  Future<CollectionModel> removeBook(String collectionId, String bookId) async {
+    final response = await apiClient.delete<Map<String, dynamic>>(
+      ApiEndpoints.collectionBook(collectionId, bookId),
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to remove book from collection');
   }
 }

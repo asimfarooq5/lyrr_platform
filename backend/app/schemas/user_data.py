@@ -133,3 +133,24 @@ class UserLibraryResponse(BaseModel):
     by_author: List[LibraryGroup]
     by_language: List[LibraryGroup]
     total: int
+
+
+class CollectionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class CollectionBookSummary(BaseModel):
+    book_id: str
+    title: str
+    author: str
+    cover_url: Optional[str] = None
+
+
+class CollectionResponse(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    books: List[CollectionBookSummary] = []
+
+    class Config:
+        from_attributes = True

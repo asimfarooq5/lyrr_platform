@@ -138,6 +138,31 @@ class UserSettings(Base):
     user = relationship("User")
 
 
+class Collection(Base):
+    """A user-organized shelf/collection of books (Kindle-style Collections)."""
+    __tablename__ = "collections"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    name = Column(String(100), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    books = relationship("CollectionBook", back_populates="collection", cascade="all, delete-orphan")
+
+
+class CollectionBook(Base):
+    __tablename__ = "collection_books"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    collection_id = Column(String(36), ForeignKey("collections.id", ondelete="CASCADE"))
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    collection = relationship("Collection", back_populates="books")
+
+
 class SearchHistory(Base):
     """User search history for personalization"""
     __tablename__ = "search_history"
