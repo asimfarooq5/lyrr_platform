@@ -86,6 +86,17 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
 
   Future<void> _purchaseBook(BookModel book) async {
     try {
+      // Free books skip checkout entirely and are granted immediately.
+      if (book.isFree) {
+        final booksRepo = ref.read(booksRepositoryProvider);
+        await booksRepo.purchaseBook(book.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${book.title} added to your library')),
+        );
+        return;
+      }
+
       final repo = ref.read(paymentsRepositoryProvider);
 
       // Show payment method sheet (pay-per-book, FRS §10)
@@ -138,7 +149,7 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Buy "${book.title}"',
+                    Text('Buy "${book.title}" — ${book.formattedPrice}',
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 8),
                     Text('Choose payment method',
@@ -234,7 +245,7 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Discover'),
+        title: const Text('Store'),
         actions: [
           // Language filter
           PopupMenuButton<String?>(
@@ -324,7 +335,7 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Text(
-                  'Featured',
+                  'Bestsellers',
                   style: theme.textTheme.displaySmall,
                 ),
               ),
@@ -352,7 +363,7 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
               child: Text(
-                _searchController.text.isEmpty ? 'All Books' : 'Search Results',
+                _searchController.text.isEmpty ? 'Browse the Store' : 'Search Results',
                 style: theme.textTheme.displaySmall,
               ),
             ),
@@ -479,8 +490,27 @@ class _FeaturedBookCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            const SizedBox(height: 2),
+            _PriceTag(book: book),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PriceTag extends StatelessWidget {
+  final BookModel book;
+  const _PriceTag({required this.book});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      book.isFree ? 'Free' : book.formattedPrice,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: book.isFree ? AppColors.secondary : AppColors.primary,
       ),
     );
   }
@@ -533,6 +563,8 @@ class _BookGridCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          const SizedBox(height: 2),
+          _PriceTag(book: book),
         ],
       ),
     );
@@ -686,17 +718,23 @@ class _BookDetailsSheet extends StatelessWidget {
             ),
           ),
           
-          // Purchase button
+          // Purchase button (Store, FRS §10/§11)
           Padding(
             padding: const EdgeInsets.all(24),
             child: SafeArea(
               top: false,
               child: ElevatedButton(
-                onPressed: onPurchase,
+                onPressed: book.isPurchased ? null : onPurchase,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 56),
                 ),
-                child: const Text('Add to Library'),
+                child: Text(
+                  book.isPurchased
+                      ? 'In Your Library'
+                      : book.isFree
+                          ? 'Add to Library — Free'
+                          : 'Buy Now — ${book.formattedPrice}',
+                ),
               ),
             ),
           ),

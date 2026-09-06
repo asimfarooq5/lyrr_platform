@@ -22,6 +22,7 @@ class BookModel {
   final double? progressPercent;
   final DateTime? lastReadAt;
   final String? bookType;
+  final double? price;
 
   BookModel({
     required this.id, required this.title, this.subtitle, required this.author,
@@ -29,8 +30,11 @@ class BookModel {
     this.wordCount, this.status = 'published', this.isFeatured = false,
     this.drmEnabled = true, required this.createdAt, this.updatedAt,
     this.isDownloaded = false, this.isPurchased = false,
-    this.progressPercent, this.lastReadAt, this.bookType,
+    this.progressPercent, this.lastReadAt, this.bookType, this.price,
   });
+
+  bool get isFree => price == null || price == 0;
+  String get formattedPrice => isFree ? 'Free' : price!.toStringAsFixed(2);
 
   String? get resolvedCoverUrl {
     if (coverUrl == null) return null;
@@ -58,6 +62,7 @@ class BookModel {
     'is_downloaded': isDownloaded, 'is_purchased': isPurchased,
     'progress_percent': progressPercent,
     'last_read_at': lastReadAt?.toIso8601String(),
+    'price': price,
   };
 
   factory BookModel.fromJson(Map<String, dynamic> json) => BookModel(
@@ -86,6 +91,7 @@ class BookModel {
         ? DateTime.parse((json['last_read_at'] as String).replaceAll('+00:00', 'Z'))
         : null,
     bookType: json['book_type'] as String?,
+    price: (json['price'] as num?)?.toDouble(),
   );
 
   BookModel copyWith({

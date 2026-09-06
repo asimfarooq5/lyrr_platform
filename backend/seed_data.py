@@ -37,6 +37,7 @@ SAMPLE_BOOKS = [
         "duration": 14400,
         "word_count": 47000,
         "is_featured": True,
+        "price": 1500.0,
         "chapters": [
             {"title": "Chapter 1", "order": 1, "words": 50},
             {"title": "Chapter 2", "order": 2, "words": 45},
@@ -51,6 +52,7 @@ SAMPLE_BOOKS = [
         "duration": 28800,
         "word_count": 86000,
         "is_featured": True,
+        "price": 2500.0,
         "chapters": [
             {"title": "Capítulo 1", "order": 1, "words": 60},
             {"title": "Capítulo 2", "order": 2, "words": 48},
@@ -221,6 +223,7 @@ async def seed():
                 word_count=book_data["word_count"],
                 status=BookStatus.PUBLISHED,
                 is_featured=book_data["is_featured"],
+                price=book_data.get("price"),
                 drm_enabled=False,
             )
             session.add(book)

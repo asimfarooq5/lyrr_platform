@@ -26,7 +26,7 @@ from app.core.security import verify_password, create_access_token, decode_token
 from app.core.csrf import generate_csrf_token, verify_csrf_token, revoke_csrf_tokens
 from app.models.user import User
 from app.models.book import Book, BookMedia, BookStatus, Chapter
-from app.models.content import Category, Author, SubscriptionPlan, UserSubscription, Payment
+from app.models.content import Category, Author, BookCategory, SubscriptionPlan, UserSubscription, Payment
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -184,15 +184,18 @@ async def books_page(request: Request, db: AsyncSession = Depends(get_db)):
 @router.post("/books")
 async def create_book(request: Request, title: str = Form(...), author: str = Form(""),
                       description: str = Form(""), language: str = Form("en"),
+                      price: str = Form(""),
                       db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
     book = Book(id=str(uuid.uuid4()), title=title, author=author or "Unknown",
-                description=description, language=language, status=BookStatus.PUBLISHED)
+                description=description, language=language,
+                price=float(price) if price.strip() else None,
+                status=BookStatus.DRAFT)
     db.add(book)
     await db.commit()
-    return RedirectResponse(url="/admin/books", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book.id}", status_code=302)
 
 @router.get("/books/{book_id}")
 async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depends(get_db)):
@@ -203,13 +206,21 @@ async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depe
     book = result.scalar_one_or_none()
     if not book:
         return RedirectResponse(url="/admin/books")
-    ctx = {"request": request, "page": "books", "book": book}
+    categories = (await db.execute(select(Category).order_by(Category.name))).scalars().all()
+    current_category = (await db.execute(
+        select(BookCategory.category_id).where(BookCategory.book_id == book_id)
+    )).scalar_one_or_none()
+    ctx = {"request": request, "page": "books", "book": book,
+           "categories": categories, "current_category_id": current_category}
     return templates.TemplateResponse(request, "admin/book_detail.html", await _inject_csrf(ctx, request))
 
 @router.post("/books/{book_id}")
 async def update_book(book_id: str, request: Request, title: str = Form(...),
                       author: str = Form(""), description: str = Form(""),
                       book_type: str = Form("fiction"),
+                      price: str = Form(""),
+                      category_id: str = Form(""),
+                      status: str = Form("draft"),
                       db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
@@ -222,6 +233,19 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
     book.author = author or book.author
     book.description = description
     book.book_type = book_type
+    book.price = float(price) if price.strip() else None
+    if status in (BookStatus.DRAFT.value, BookStatus.PUBLISHED.value, BookStatus.ARCHIVED.value):
+        book.status = BookStatus(status)
+        if book.status == BookStatus.PUBLISHED and not book.published_at:
+            book.published_at = datetime.utcnow()
+
+    # Pricing & Publishing (KDP-style): one category per book, replace on save.
+    await db.execute(
+        BookCategory.__table__.delete().where(BookCategory.book_id == book_id)
+    )
+    if category_id.strip():
+        db.add(BookCategory(book_id=book_id, category_id=category_id))
+
     await db.commit()
     return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
 

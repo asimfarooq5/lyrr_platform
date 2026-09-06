@@ -55,9 +55,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             label: 'Library',
           ),
           NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore),
-            label: 'Discover',
+            icon: Icon(Icons.storefront_outlined),
+            selectedIcon: Icon(Icons.storefront),
+            label: 'Store',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
