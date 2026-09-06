@@ -408,6 +408,12 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
           book: book,
           scrollController: controller,
           onPurchase: () => _purchaseBook(book),
+          onReadSample: () {
+            Navigator.pop(context);
+            Navigator.push(context, MaterialPageRoute(
+              builder: (_) => ReaderScreen(bookId: book.id),
+            ));
+          },
         ),
       ),
     );
@@ -575,11 +581,13 @@ class _BookDetailsSheet extends StatelessWidget {
   final BookModel book;
   final ScrollController scrollController;
   final VoidCallback onPurchase;
+  final VoidCallback? onReadSample;
 
   const _BookDetailsSheet({
     required this.book,
     required this.scrollController,
     required this.onPurchase,
+    this.onReadSample,
   });
 
   @override
@@ -718,23 +726,37 @@ class _BookDetailsSheet extends StatelessWidget {
             ),
           ),
           
-          // Purchase button (Store, FRS §10/§11)
+          // Purchase / sample buttons (Store, FRS §10/§11)
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             child: SafeArea(
               top: false,
-              child: ElevatedButton(
-                onPressed: book.isPurchased ? null : onPurchase,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 56),
-                ),
-                child: Text(
-                  book.isPurchased
-                      ? 'In Your Library'
-                      : book.isFree
-                          ? 'Add to Library — Free'
-                          : 'Buy Now — ${book.formattedPrice}',
-                ),
+              child: Column(
+                children: [
+                  if (!book.isPurchased && !book.isFree && onReadSample != null) ...[
+                    OutlinedButton(
+                      onPressed: onReadSample,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 48),
+                      ),
+                      child: const Text('Read Sample'),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  ElevatedButton(
+                    onPressed: book.isPurchased ? null : onPurchase,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 56),
+                    ),
+                    child: Text(
+                      book.isPurchased
+                          ? 'In Your Library'
+                          : book.isFree
+                              ? 'Add to Library — Free'
+                              : 'Buy Now — ${book.formattedPrice}',
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

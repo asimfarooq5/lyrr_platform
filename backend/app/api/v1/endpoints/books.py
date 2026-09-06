@@ -124,43 +124,59 @@ async def get_book(
     }))
 
 
+async def _has_book_access(db: AsyncSession, current_user: User, book_id: str) -> bool:
+    if settings.BYPASS_LIBRARY_PERMISSIONS or current_user.is_admin:
+        return True
+    result = await db.execute(
+        select(UserBook).where(
+            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 @router.get("/{book_id}/content", response_model=BookContentResponse)
 async def get_book_content(
     book_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get book text content (chapters and words)"""
-    # Check if user has access (bypassable for MVP/demo)
-    if not settings.BYPASS_LIBRARY_PERMISSIONS:
-        user_book_result = await db.execute(
-            select(UserBook).where(
-                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
-            )
-        )
-        user_book = user_book_result.scalar_one_or_none()
-        
-        if not user_book and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Book not purchased")
-    
-    # Get content
+    """Get book text content (chapters and words).
+
+    Free Access / Book preview (FRS §11): a book that hasn't been purchased
+    or subscribed to returns only its first chapter, flagged as a preview,
+    instead of a hard 403 - matching a bookstore "read a sample" flow.
+    """
+    has_access = await _has_book_access(db, current_user, book_id)
+
     result = await db.execute(
         select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
     )
     chapters = result.scalars().all()
-    
-    from fastapi.encoders import jsonable_encoder
-    return jsonable_encoder({"chapters": [
-        {
-            "id": ch.id,
-            "book_id": ch.book_id,
-            "title": ch.title,
-            "order_index": ch.order_index,
-            "content": ch.content or [],
-            "sync_data": ch.sync_data,
-        }
-        for ch in chapters
-    ]})
+
+    is_preview = False
+    if not has_access:
+        book_result = await db.execute(select(Book).where(Book.id == book_id))
+        book = book_result.scalar_one_or_none()
+        if book and book.price:  # paid books gate everything but the sample
+            chapters = chapters[:1]
+            is_preview = True
+        # Free books (price is None/0) remain fully readable without a license.
+
+    return jsonable_encoder({
+        "chapters": [
+            {
+                "id": ch.id,
+                "book_id": ch.book_id,
+                "title": ch.title,
+                "order_index": ch.order_index,
+                "content": ch.content or [],
+                "sync_data": ch.sync_data,
+            }
+            for ch in chapters
+        ],
+        "is_preview": is_preview,
+    })
 
 
 @router.get("/{book_id}/sync", response_model=BookSyncResponse)
@@ -169,32 +185,30 @@ async def get_book_sync(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get book synchronization data (word timings)"""
-    # Check access (bypassable for MVP/demo)
-    if not settings.BYPASS_LIBRARY_PERMISSIONS:
-        user_book_result = await db.execute(
-            select(UserBook).where(
-                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
-            )
-        )
-        user_book = user_book_result.scalar_one_or_none()
-        
-        if not user_book and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Book not purchased")
-    
-    # Get sync data from chapters
+    """Get book synchronization data (word timings).
+
+    Mirrors the preview gating in /content (FRS §11): unpurchased paid books
+    only get sync data for the free sample chapter.
+    """
+    has_access = await _has_book_access(db, current_user, book_id)
+
     result = await db.execute(
         select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
     )
     chapters = result.scalars().all()
-    
+
+    if not has_access:
+        book_result = await db.execute(select(Book).where(Book.id == book_id))
+        book = book_result.scalar_one_or_none()
+        if book and book.price:
+            chapters = chapters[:1]
+
     # Flatten sync data from all chapters
     all_sync = []
     for chapter in chapters:
         if chapter.sync_data:
             all_sync.extend(chapter.sync_data)
-    
-    from fastapi.encoders import jsonable_encoder
+
     return jsonable_encoder({"sync_data": all_sync})
 
 

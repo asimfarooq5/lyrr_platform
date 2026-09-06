@@ -158,6 +158,23 @@ class BooksRepository {
     return [];
   }
 
+  /// Same as [getBookContent] but also reports whether this is a free
+  /// sample (FRS §11: unpurchased paid books only return the first chapter).
+  Future<({List<dynamic> chapters, bool isPreview})> getBookContentWithPreviewFlag(
+    String bookId,
+  ) async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.bookContent(bookId),
+    );
+    if (response.success && response.data != null) {
+      return (
+        chapters: response.data!['chapters'] as List<dynamic>,
+        isPreview: (response.data!['is_preview'] as bool?) ?? false,
+      );
+    }
+    return (chapters: <dynamic>[], isPreview: false);
+  }
+
   Future<List<dynamic>> getBookSync(String bookId) async {
     final response = await apiClient.get<Map<String, dynamic>>(
       ApiEndpoints.bookSync(bookId),

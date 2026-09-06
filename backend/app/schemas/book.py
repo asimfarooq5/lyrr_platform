@@ -111,6 +111,7 @@ class BookDetailResponse(BookResponse):
 
 class BookContentResponse(BaseModel):
     chapters: List[ChapterSchema]
+    is_preview: bool = False
 
 
 class BookSyncResponse(BaseModel):

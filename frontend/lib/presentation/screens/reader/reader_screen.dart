@@ -74,6 +74,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   double _playbackSpeed = 1.0;
   double _voicePitch = 1.0; // FRS §7: voice tone adjustment
   bool _autoScroll = true;
+  bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
   bool _showPageNumber = true;
@@ -330,8 +331,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _book = BookModel.fromJson(bookData);
       }
 
-      final chaptersData = await booksRepo.getBookContent(widget.bookId);
-      _chapters = chaptersData.map((c) => ChapterModel.fromJson(c)).toList();
+      final content = await booksRepo.getBookContentWithPreviewFlag(widget.bookId);
+      _chapters = content.chapters.map((c) => ChapterModel.fromJson(c)).toList();
+      _isPreview = content.isPreview;
 
       final syncData = await booksRepo.getBookSync(widget.bookId);
       _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
@@ -513,7 +515,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (mounted) _scrollController.animateTo(0,
           duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
       });
+    } else if (_isPreview) {
+      _showSampleEndDialog();
     }
+  }
+
+  /// Free sample (FRS §11) ran out — offer to buy the full book.
+  void _showSampleEndDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('End of sample'),
+        content: Text(
+          'You\'ve reached the end of the free sample of "${_book?.title ?? 'this book'}". '
+          'Buy the full book to keep reading.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Not now'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context); // back to Store to complete checkout
+            },
+            child: Text(_book != null && !_book!.isFree
+                ? 'Buy Now — ${_book!.formattedPrice}'
+                : 'Buy Now'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _togglePlayPause() async {
@@ -899,6 +932,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   ],
                 ),
               ),
+              if (_isPreview)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text('SAMPLE', style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary,
+                  )),
+                ),
               // Table of Contents
               IconButton(
                 icon: const Icon(Icons.list),
