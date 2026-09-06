@@ -8,7 +8,7 @@ Implements the FRS Payment Module:
     - Complete payment history
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import Any, Dict, List, Optional
@@ -244,3 +244,41 @@ async def confirm_payment(
 
     await payment_service.complete_payment(db, payment)
     return payment
+
+
+@router.post("/webhook/orange_money", include_in_schema=False)
+async def orange_money_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Server-to-server callback Orange Money posts to notif_url on payment
+    status change. Never trusts the payload's status directly - it re-checks
+    the charge with Orange's own transactionstatus endpoint before
+    completing the order, so a forged POST here can't fake a payment.
+    """
+    body = await request.json()
+    order_id = body.get("order_id") or body.get("reference")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="Missing order_id")
+
+    result = await db.execute(select(Payment).where(Payment.reference == order_id))
+    payment = result.scalar_one_or_none()
+    if not payment or payment.method != payment_service.METHOD_ORANGE_MONEY:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if payment.status == payment_service.STATUS_COMPLETED:
+        return {"message": "already completed"}
+
+    gateway = payment_service.get_gateway(payment.method)
+    try:
+        gateway_status = await gateway.verify_charge(payment.gateway_reference or payment.reference)
+    except payment_service.PaymentError:
+        return {"message": "verification failed, will retry"}
+
+    if gateway_status.get("status") == payment_service.STATUS_COMPLETED:
+        await payment_service.complete_payment(db, payment)
+    else:
+        payment.status = gateway_status.get("status", payment.status)
+        await db.commit()
+
+    return {"message": "processed"}

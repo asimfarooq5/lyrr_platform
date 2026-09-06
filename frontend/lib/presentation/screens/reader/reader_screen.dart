@@ -76,6 +76,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   double _voicePitch = 1.0; // FRS §7: voice tone adjustment
   bool _autoScroll = true;
   bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
+  String? _audioError;
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
   bool _showPageNumber = true;
@@ -407,6 +408,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _loadAudio() async {
+    setState(() => _audioError = null);
     try {
       // Offline mode (FRS §9): prefer a previously downloaded local file so
       // playback works without a network connection.
@@ -419,11 +421,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
       final drmService = ref.read(drmServiceProvider);
       final license = await drmService.getLicense(widget.bookId);
-      if (license?.downloadUrl != null) {
-        await _audioPlayer.setUrl(license!.downloadUrl!);
+      if (license?.downloadUrl == null) {
+        setState(() => _audioError = 'No audio available for this book');
+        return;
       }
+      await _audioPlayer.setUrl(license!.downloadUrl!);
     } catch (e) {
-      // Continue without audio
+      if (mounted) setState(() => _audioError = 'Could not load audio: $e');
     }
   }
 
@@ -555,8 +559,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_isTtsPlaying) {
       await _stopTts();
     }
-    if (_isPlaying) await _audioPlayer.pause();
-    else await _audioPlayer.play();
+    try {
+      if (_isPlaying) {
+        await _audioPlayer.pause();
+      } else {
+        if (_audioError != null) {
+          await _loadAudio(); // retry loading before playing
+        }
+        await _audioPlayer.play();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _audioError = 'Playback error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not play audio: $e')),
+      );
+    }
   }
 
   Future<void> _seekToWord(String wordId) async {
@@ -1034,6 +1052,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 ],
               ),
             ),
+            if (_audioError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(_audioError!,
+                        style: const TextStyle(fontSize: 11, color: AppColors.error),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    TextButton(
+                      onPressed: _loadAudio,
+                      child: const Text('Retry', style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                ),
+              ),
             // Audio controls
             AudioControls(
               isPlaying: _isPlaying,

@@ -208,7 +208,7 @@ class OrangeMoneyGateway(PaymentGateway):
                         "amount": amount,
                         "return_url": f"{settings.FRONTEND_URL}/payments/return",
                         "cancel_url": f"{settings.FRONTEND_URL}/payments/cancel",
-                        "notif_url": f"{settings.FRONTEND_URL}/api/v1/payments/webhook/orange_money",
+                        "notif_url": f"{settings.PUBLIC_API_URL}/api/v1/payments/webhook/orange_money",
                         "lang": "en",
                         "reference": reference,
                     },

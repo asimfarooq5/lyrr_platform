@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:8080"
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # This API's own publicly reachable base URL - used for server-to-server
+    # gateway callbacks (e.g. Orange Money's notif_url), which must hit this
+    # backend, not the frontend/web portal that FRONTEND_URL points at.
+    PUBLIC_API_URL: str = "http://localhost:8000"
+
     # Bypass per-book purchase checks so all published books are readable
     # by any authenticated user. Defaults to False (FRS §14: books/audio must
     # not be accessible without a valid purchase/subscription); flip to True

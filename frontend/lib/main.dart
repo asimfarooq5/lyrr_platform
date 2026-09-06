@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:audio_session/audio_session.dart';
 import 'providers/app_providers.dart';
 import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/auth/login_screen.dart';
@@ -18,6 +19,13 @@ void main() async {
   
   // Initialize shared preferences
   final prefs = await SharedPreferences.getInstance();
+
+  // Configure the audio session for spoken-word/audiobook playback. Without
+  // this, just_audio uses no session at all on some devices/OEM ROMs, which
+  // can mean audio never actually reaches the speaker even though playback
+  // "succeeds" with no error.
+  final audioSession = await AudioSession.instance;
+  await audioSession.configure(const AudioSessionConfiguration.speech());
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
