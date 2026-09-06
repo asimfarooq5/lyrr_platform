@@ -11,10 +11,11 @@ Implements the FRS Payment Module:
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
@@ -68,9 +69,11 @@ class PaymentResponse(BaseModel):
     gateway_reference: Optional[str] = None
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    checkout_data: Optional[Dict[str, Any]] = Field(default=None, alias="payment_metadata")
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 # ---- Endpoints ----
@@ -202,10 +205,12 @@ async def confirm_payment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Confirm a pending payment (mobile money approval callback).
+    """Confirm a pending payment.
 
     In sandbox mode this completes the order and grants the entitlement,
-    simulating the notification a mobile money gateway sends on approval.
+    simulating the notification a mobile money/card gateway sends on
+    approval. In live mode the gateway is asked for the charge's real
+    status first — the client cannot self-report success.
     """
     result = await db.execute(
         select(Payment).where(
@@ -222,6 +227,20 @@ async def confirm_payment(
 
     if payment.status in (payment_service.STATUS_FAILED, payment_service.STATUS_CANCELLED, payment_service.STATUS_EXPIRED):
         raise HTTPException(status_code=400, detail=f"Payment is {payment.status}")
+
+    if settings.PAYMENT_MODE == "live":
+        gateway = payment_service.get_gateway(payment.method)
+        try:
+            gateway_status = await gateway.verify_charge(payment.gateway_reference or payment.reference)
+        except payment_service.PaymentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if gateway_status.get("status") != payment_service.STATUS_COMPLETED:
+            payment.status = gateway_status.get("status", payment.status)
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Payment not yet confirmed by gateway (status={payment.status})",
+            )
 
     await payment_service.complete_payment(db, payment)
     return payment

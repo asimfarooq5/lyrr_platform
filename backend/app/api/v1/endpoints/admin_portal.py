@@ -13,7 +13,6 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 import uuid
 import os
-import csv
 import io
 import shutil
 import zipfile
@@ -644,21 +643,65 @@ async def analytics_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.get("/analytics/export")
 async def export_analytics(request: Request, db: AsyncSession = Depends(get_db)):
+    """Export analytics to an Excel workbook (.xlsx) - FRS §13."""
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Metric", "Value"])
-    writer.writerow(["Total Users", (await db.scalar(select(func.count(User.id)))) or 0])
-    writer.writerow(["Total Books", (await db.scalar(select(func.count(Book.id)))) or 0])
-    writer.writerow(["Active Subscriptions", (await db.scalar(select(func.count(UserSubscription.id)).where(UserSubscription.status == "active"))) or 0])
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    writer.writerow(["Total Revenue", sum(p.amount for p in payments)])
-    writer.writerow(["", ""])
-    writer.writerow(["Recent Payments"])
-    writer.writerow(["ID", "Amount", "Method", "Status", "Date"])
-    for p in payments[-20:]:
-        writer.writerow([p.id, p.amount, p.method, p.status, str(p.created_at)[:19]])
-    return Response(content=output.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=lyrr_analytics.csv"})
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    total_users = (await db.scalar(select(func.count(User.id)))) or 0
+    total_books = (await db.scalar(select(func.count(Book.id)))) or 0
+    active_subscriptions = (await db.scalar(
+        select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+    )) or 0
+    payments = (await db.execute(
+        select(Payment).where(Payment.status == "completed").order_by(Payment.created_at)
+    )).scalars().all()
+    total_revenue = sum(p.amount for p in payments)
+    books = (await db.execute(select(Book).order_by(Book.created_at.desc()).limit(10))).scalars().all()
+
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["LYRR Analytics", ""])
+    ws.append(["Generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+    ws.append([])
+    ws.append(["Metric", "Value"])
+    ws.append(["Total Users", total_users])
+    ws.append(["Total Books", total_books])
+    ws.append(["Active Subscriptions", active_subscriptions])
+    ws.append(["Total Revenue", total_revenue])
+    ws.append(["Completed Payments", len(payments)])
+
+    ws2 = wb.create_sheet("Payments")
+    ws2.append(["ID", "Amount", "Currency", "Method", "Status", "Date"])
+    for p in payments:
+        ws2.append([p.id, p.amount, p.currency, p.method, p.status, str(p.created_at)[:19]])
+
+    ws3 = wb.create_sheet("Recent Books")
+    ws3.append(["Title", "Author", "Status"])
+    for b in books:
+        ws3.append([b.title, b.author, b.status.value if hasattr(b.status, "value") else b.status])
+
+    header_font = Font(bold=True)
+    fill = PatternFill(start_color="DDEEFF", end_color="DDEEFF", fill_type="solid")
+    for sheet in wb.worksheets:
+        for cell in sheet[1]:
+            cell.font = header_font
+            cell.fill = fill
+        sheet.column_dimensions[get_column_letter(1)].width = 28
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"lyrr_analytics_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

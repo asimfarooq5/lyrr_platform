@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
 import '../../../data/models/book_model.dart';
+import '../../../data/services/download_service.dart';
 import '../../theme/app_theme.dart';
 import '../reader/reader_screen.dart';
 
@@ -148,10 +149,75 @@ class LibraryTabState extends ConsumerState<LibraryTab> {
   }
 }
 
-class _BookCard extends StatelessWidget {
+class _BookCard extends ConsumerStatefulWidget {
   final BookModel book;
   final VoidCallback onTap;
   const _BookCard({required this.book, required this.onTap});
+
+  @override
+  ConsumerState<_BookCard> createState() => _BookCardState();
+}
+
+class _BookCardState extends ConsumerState<_BookCard> {
+  BookModel get book => widget.book;
+  VoidCallback get onTap => widget.onTap;
+
+  DownloadState _state = DownloadState.notDownloaded;
+  double _progress = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkDownloaded();
+  }
+
+  Future<void> _checkDownloaded() async {
+    final service = ref.read(downloadServiceProvider);
+    final downloaded = await service.isDownloaded(book.id);
+    if (mounted) setState(() => _state = downloaded ? DownloadState.downloaded : DownloadState.notDownloaded);
+  }
+
+  Future<void> _toggleDownload() async {
+    final service = ref.read(downloadServiceProvider);
+    if (_state == DownloadState.downloaded) {
+      await service.deleteDownload(book.id);
+      if (mounted) setState(() => _state = DownloadState.notDownloaded);
+      return;
+    }
+
+    setState(() => _state = DownloadState.downloading);
+    final sub = service.progressStream(book.id).listen((p) {
+      if (mounted) setState(() { _progress = p.progress; _state = p.state; });
+    });
+    try {
+      await service.downloadBook(book);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _state = DownloadState.failed);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    } finally {
+      sub.cancel();
+    }
+  }
+
+  Widget _downloadIcon() {
+    switch (_state) {
+      case DownloadState.downloading:
+        return SizedBox(
+          width: 22, height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, value: _progress > 0 ? _progress : null),
+        );
+      case DownloadState.downloaded:
+        return const Icon(Icons.download_done, color: AppColors.primary);
+      case DownloadState.failed:
+        return const Icon(Icons.error_outline, color: AppColors.error);
+      case DownloadState.notDownloaded:
+        return const Icon(Icons.download_outlined, color: Colors.grey);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,6 +265,11 @@ class _BookCard extends StatelessWidget {
                     ],
                   ],
                 ),
+              ),
+              IconButton(
+                icon: _downloadIcon(),
+                tooltip: _state == DownloadState.downloaded ? 'Remove download' : 'Download for offline',
+                onPressed: _state == DownloadState.downloading ? null : _toggleDownload,
               ),
             ],
           ),

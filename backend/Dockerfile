@@ -28,16 +28,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /root/.local /root/.local
-
-# Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
-
 # Create a non-root user to run the app
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/logs /app/storage/audio /app/storage/covers \
     && chown -R appuser:appuser /app
+
+# Copy Python packages from builder, owned by appuser (appuser can't
+# traverse /root, so the packages must not live there)
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
+
+# Make sure scripts in .local are usable
+ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Copy application code
 COPY app/ ./app/

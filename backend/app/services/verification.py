@@ -79,17 +79,26 @@ async def _delete_otp(key: str) -> None:
 
 
 async def request_otp(channel: str, target: str) -> str:
-    """Generate and 'send' an OTP for the given channel/target.
+    """Generate and send an OTP for the given channel/target.
 
     Returns the OTP. In sandbox mode the OTP is returned to the caller so the
-    verification flow can complete locally; in live mode it would be emailed or
-    SMS'd instead of being returned.
+    verification flow can complete locally; in live mode it is emailed or
+    SMS'd instead and an empty string is returned.
     """
     code = _generate_code()
     await _store_otp(_key(channel, target), code)
     if getattr(settings, "VERIFICATION_MODE", "sandbox") == "live":
-        # TODO: send real email/SMS here
-        logger.info("OTP for %s %s would be sent (live mode)", channel, target)
+        if channel == "email":
+            from app.services.email import send_otp_email
+            sent = await send_otp_email(target, code)
+        else:
+            from app.services.sms import send_otp_sms
+            sent = await send_otp_sms(target, code)
+        if not sent:
+            logger.warning(
+                "OTP for %s %s could not be delivered (gateway not configured or failed)",
+                channel, target,
+            )
         return ""
     logger.info("OTP for %s %s: %s (sandbox)", channel, target, code)
     return code

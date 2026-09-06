@@ -98,6 +98,18 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("is_downloaded" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _localAudioPathMeta =
+      const VerificationMeta('localAudioPath');
+  @override
+  late final GeneratedColumn<String> localAudioPath = GeneratedColumn<String>(
+      'local_audio_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _localCoverPathMeta =
+      const VerificationMeta('localCoverPath');
+  @override
+  late final GeneratedColumn<String> localCoverPath = GeneratedColumn<String>(
+      'local_cover_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _isPurchasedMeta =
       const VerificationMeta('isPurchased');
   @override
@@ -149,6 +161,8 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
         isFeatured,
         drmEnabled,
         isDownloaded,
+        localAudioPath,
+        localCoverPath,
         isPurchased,
         progressPercent,
         lastReadAt,
@@ -230,6 +244,18 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
           isDownloaded.isAcceptableOrUnknown(
               data['is_downloaded']!, _isDownloadedMeta));
     }
+    if (data.containsKey('local_audio_path')) {
+      context.handle(
+          _localAudioPathMeta,
+          localAudioPath.isAcceptableOrUnknown(
+              data['local_audio_path']!, _localAudioPathMeta));
+    }
+    if (data.containsKey('local_cover_path')) {
+      context.handle(
+          _localCoverPathMeta,
+          localCoverPath.isAcceptableOrUnknown(
+              data['local_cover_path']!, _localCoverPathMeta));
+    }
     if (data.containsKey('is_purchased')) {
       context.handle(
           _isPurchasedMeta,
@@ -293,6 +319,10 @@ class $BooksTable extends Books with TableInfo<$BooksTable, Book> {
           .read(DriftSqlType.bool, data['${effectivePrefix}drm_enabled'])!,
       isDownloaded: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_downloaded'])!,
+      localAudioPath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}local_audio_path']),
+      localCoverPath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}local_cover_path']),
       isPurchased: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_purchased'])!,
       progressPercent: attachedDatabase.typeMapping.read(
@@ -326,6 +356,8 @@ class Book extends DataClass implements Insertable<Book> {
   final bool isFeatured;
   final bool drmEnabled;
   final bool isDownloaded;
+  final String? localAudioPath;
+  final String? localCoverPath;
   final bool isPurchased;
   final double progressPercent;
   final DateTime? lastReadAt;
@@ -345,6 +377,8 @@ class Book extends DataClass implements Insertable<Book> {
       required this.isFeatured,
       required this.drmEnabled,
       required this.isDownloaded,
+      this.localAudioPath,
+      this.localCoverPath,
       required this.isPurchased,
       required this.progressPercent,
       this.lastReadAt,
@@ -376,6 +410,12 @@ class Book extends DataClass implements Insertable<Book> {
     map['is_featured'] = Variable<bool>(isFeatured);
     map['drm_enabled'] = Variable<bool>(drmEnabled);
     map['is_downloaded'] = Variable<bool>(isDownloaded);
+    if (!nullToAbsent || localAudioPath != null) {
+      map['local_audio_path'] = Variable<String>(localAudioPath);
+    }
+    if (!nullToAbsent || localCoverPath != null) {
+      map['local_cover_path'] = Variable<String>(localCoverPath);
+    }
     map['is_purchased'] = Variable<bool>(isPurchased);
     map['progress_percent'] = Variable<double>(progressPercent);
     if (!nullToAbsent || lastReadAt != null) {
@@ -413,6 +453,12 @@ class Book extends DataClass implements Insertable<Book> {
       isFeatured: Value(isFeatured),
       drmEnabled: Value(drmEnabled),
       isDownloaded: Value(isDownloaded),
+      localAudioPath: localAudioPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localAudioPath),
+      localCoverPath: localCoverPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localCoverPath),
       isPurchased: Value(isPurchased),
       progressPercent: Value(progressPercent),
       lastReadAt: lastReadAt == null && nullToAbsent
@@ -442,6 +488,8 @@ class Book extends DataClass implements Insertable<Book> {
       isFeatured: serializer.fromJson<bool>(json['isFeatured']),
       drmEnabled: serializer.fromJson<bool>(json['drmEnabled']),
       isDownloaded: serializer.fromJson<bool>(json['isDownloaded']),
+      localAudioPath: serializer.fromJson<String?>(json['localAudioPath']),
+      localCoverPath: serializer.fromJson<String?>(json['localCoverPath']),
       isPurchased: serializer.fromJson<bool>(json['isPurchased']),
       progressPercent: serializer.fromJson<double>(json['progressPercent']),
       lastReadAt: serializer.fromJson<DateTime?>(json['lastReadAt']),
@@ -466,6 +514,8 @@ class Book extends DataClass implements Insertable<Book> {
       'isFeatured': serializer.toJson<bool>(isFeatured),
       'drmEnabled': serializer.toJson<bool>(drmEnabled),
       'isDownloaded': serializer.toJson<bool>(isDownloaded),
+      'localAudioPath': serializer.toJson<String?>(localAudioPath),
+      'localCoverPath': serializer.toJson<String?>(localCoverPath),
       'isPurchased': serializer.toJson<bool>(isPurchased),
       'progressPercent': serializer.toJson<double>(progressPercent),
       'lastReadAt': serializer.toJson<DateTime?>(lastReadAt),
@@ -488,6 +538,8 @@ class Book extends DataClass implements Insertable<Book> {
           bool? isFeatured,
           bool? drmEnabled,
           bool? isDownloaded,
+          Value<String?> localAudioPath = const Value.absent(),
+          Value<String?> localCoverPath = const Value.absent(),
           bool? isPurchased,
           double? progressPercent,
           Value<DateTime?> lastReadAt = const Value.absent(),
@@ -507,6 +559,10 @@ class Book extends DataClass implements Insertable<Book> {
         isFeatured: isFeatured ?? this.isFeatured,
         drmEnabled: drmEnabled ?? this.drmEnabled,
         isDownloaded: isDownloaded ?? this.isDownloaded,
+        localAudioPath:
+            localAudioPath.present ? localAudioPath.value : this.localAudioPath,
+        localCoverPath:
+            localCoverPath.present ? localCoverPath.value : this.localCoverPath,
         isPurchased: isPurchased ?? this.isPurchased,
         progressPercent: progressPercent ?? this.progressPercent,
         lastReadAt: lastReadAt.present ? lastReadAt.value : this.lastReadAt,
@@ -533,6 +589,12 @@ class Book extends DataClass implements Insertable<Book> {
       isDownloaded: data.isDownloaded.present
           ? data.isDownloaded.value
           : this.isDownloaded,
+      localAudioPath: data.localAudioPath.present
+          ? data.localAudioPath.value
+          : this.localAudioPath,
+      localCoverPath: data.localCoverPath.present
+          ? data.localCoverPath.value
+          : this.localCoverPath,
       isPurchased:
           data.isPurchased.present ? data.isPurchased.value : this.isPurchased,
       progressPercent: data.progressPercent.present
@@ -561,6 +623,8 @@ class Book extends DataClass implements Insertable<Book> {
           ..write('isFeatured: $isFeatured, ')
           ..write('drmEnabled: $drmEnabled, ')
           ..write('isDownloaded: $isDownloaded, ')
+          ..write('localAudioPath: $localAudioPath, ')
+          ..write('localCoverPath: $localCoverPath, ')
           ..write('isPurchased: $isPurchased, ')
           ..write('progressPercent: $progressPercent, ')
           ..write('lastReadAt: $lastReadAt, ')
@@ -585,6 +649,8 @@ class Book extends DataClass implements Insertable<Book> {
       isFeatured,
       drmEnabled,
       isDownloaded,
+      localAudioPath,
+      localCoverPath,
       isPurchased,
       progressPercent,
       lastReadAt,
@@ -607,6 +673,8 @@ class Book extends DataClass implements Insertable<Book> {
           other.isFeatured == this.isFeatured &&
           other.drmEnabled == this.drmEnabled &&
           other.isDownloaded == this.isDownloaded &&
+          other.localAudioPath == this.localAudioPath &&
+          other.localCoverPath == this.localCoverPath &&
           other.isPurchased == this.isPurchased &&
           other.progressPercent == this.progressPercent &&
           other.lastReadAt == this.lastReadAt &&
@@ -628,6 +696,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
   final Value<bool> isFeatured;
   final Value<bool> drmEnabled;
   final Value<bool> isDownloaded;
+  final Value<String?> localAudioPath;
+  final Value<String?> localCoverPath;
   final Value<bool> isPurchased;
   final Value<double> progressPercent;
   final Value<DateTime?> lastReadAt;
@@ -648,6 +718,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
     this.isFeatured = const Value.absent(),
     this.drmEnabled = const Value.absent(),
     this.isDownloaded = const Value.absent(),
+    this.localAudioPath = const Value.absent(),
+    this.localCoverPath = const Value.absent(),
     this.isPurchased = const Value.absent(),
     this.progressPercent = const Value.absent(),
     this.lastReadAt = const Value.absent(),
@@ -669,6 +741,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
     this.isFeatured = const Value.absent(),
     this.drmEnabled = const Value.absent(),
     this.isDownloaded = const Value.absent(),
+    this.localAudioPath = const Value.absent(),
+    this.localCoverPath = const Value.absent(),
     this.isPurchased = const Value.absent(),
     this.progressPercent = const Value.absent(),
     this.lastReadAt = const Value.absent(),
@@ -693,6 +767,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
     Expression<bool>? isFeatured,
     Expression<bool>? drmEnabled,
     Expression<bool>? isDownloaded,
+    Expression<String>? localAudioPath,
+    Expression<String>? localCoverPath,
     Expression<bool>? isPurchased,
     Expression<double>? progressPercent,
     Expression<DateTime>? lastReadAt,
@@ -714,6 +790,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
       if (isFeatured != null) 'is_featured': isFeatured,
       if (drmEnabled != null) 'drm_enabled': drmEnabled,
       if (isDownloaded != null) 'is_downloaded': isDownloaded,
+      if (localAudioPath != null) 'local_audio_path': localAudioPath,
+      if (localCoverPath != null) 'local_cover_path': localCoverPath,
       if (isPurchased != null) 'is_purchased': isPurchased,
       if (progressPercent != null) 'progress_percent': progressPercent,
       if (lastReadAt != null) 'last_read_at': lastReadAt,
@@ -737,6 +815,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
       Value<bool>? isFeatured,
       Value<bool>? drmEnabled,
       Value<bool>? isDownloaded,
+      Value<String?>? localAudioPath,
+      Value<String?>? localCoverPath,
       Value<bool>? isPurchased,
       Value<double>? progressPercent,
       Value<DateTime?>? lastReadAt,
@@ -757,6 +837,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
       isFeatured: isFeatured ?? this.isFeatured,
       drmEnabled: drmEnabled ?? this.drmEnabled,
       isDownloaded: isDownloaded ?? this.isDownloaded,
+      localAudioPath: localAudioPath ?? this.localAudioPath,
+      localCoverPath: localCoverPath ?? this.localCoverPath,
       isPurchased: isPurchased ?? this.isPurchased,
       progressPercent: progressPercent ?? this.progressPercent,
       lastReadAt: lastReadAt ?? this.lastReadAt,
@@ -808,6 +890,12 @@ class BooksCompanion extends UpdateCompanion<Book> {
     if (isDownloaded.present) {
       map['is_downloaded'] = Variable<bool>(isDownloaded.value);
     }
+    if (localAudioPath.present) {
+      map['local_audio_path'] = Variable<String>(localAudioPath.value);
+    }
+    if (localCoverPath.present) {
+      map['local_cover_path'] = Variable<String>(localCoverPath.value);
+    }
     if (isPurchased.present) {
       map['is_purchased'] = Variable<bool>(isPurchased.value);
     }
@@ -845,6 +933,8 @@ class BooksCompanion extends UpdateCompanion<Book> {
           ..write('isFeatured: $isFeatured, ')
           ..write('drmEnabled: $drmEnabled, ')
           ..write('isDownloaded: $isDownloaded, ')
+          ..write('localAudioPath: $localAudioPath, ')
+          ..write('localCoverPath: $localCoverPath, ')
           ..write('isPurchased: $isPurchased, ')
           ..write('progressPercent: $progressPercent, ')
           ..write('lastReadAt: $lastReadAt, ')
@@ -4430,6 +4520,8 @@ typedef $$BooksTableCreateCompanionBuilder = BooksCompanion Function({
   Value<bool> isFeatured,
   Value<bool> drmEnabled,
   Value<bool> isDownloaded,
+  Value<String?> localAudioPath,
+  Value<String?> localCoverPath,
   Value<bool> isPurchased,
   Value<double> progressPercent,
   Value<DateTime?> lastReadAt,
@@ -4451,6 +4543,8 @@ typedef $$BooksTableUpdateCompanionBuilder = BooksCompanion Function({
   Value<bool> isFeatured,
   Value<bool> drmEnabled,
   Value<bool> isDownloaded,
+  Value<String?> localAudioPath,
+  Value<String?> localCoverPath,
   Value<bool> isPurchased,
   Value<double> progressPercent,
   Value<DateTime?> lastReadAt,
@@ -4570,6 +4664,14 @@ class $$BooksTableFilterComposer
 
   ColumnFilters<bool> get isDownloaded => $composableBuilder(
       column: $table.isDownloaded, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get localAudioPath => $composableBuilder(
+      column: $table.localAudioPath,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get localCoverPath => $composableBuilder(
+      column: $table.localCoverPath,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get isPurchased => $composableBuilder(
       column: $table.isPurchased, builder: (column) => ColumnFilters(column));
@@ -4721,6 +4823,14 @@ class $$BooksTableOrderingComposer
       column: $table.isDownloaded,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get localAudioPath => $composableBuilder(
+      column: $table.localAudioPath,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get localCoverPath => $composableBuilder(
+      column: $table.localCoverPath,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get isPurchased => $composableBuilder(
       column: $table.isPurchased, builder: (column) => ColumnOrderings(column));
 
@@ -4785,6 +4895,12 @@ class $$BooksTableAnnotationComposer
 
   GeneratedColumn<bool> get isDownloaded => $composableBuilder(
       column: $table.isDownloaded, builder: (column) => column);
+
+  GeneratedColumn<String> get localAudioPath => $composableBuilder(
+      column: $table.localAudioPath, builder: (column) => column);
+
+  GeneratedColumn<String> get localCoverPath => $composableBuilder(
+      column: $table.localCoverPath, builder: (column) => column);
 
   GeneratedColumn<bool> get isPurchased => $composableBuilder(
       column: $table.isPurchased, builder: (column) => column);
@@ -4926,6 +5042,8 @@ class $$BooksTableTableManager extends RootTableManager<
             Value<bool> isFeatured = const Value.absent(),
             Value<bool> drmEnabled = const Value.absent(),
             Value<bool> isDownloaded = const Value.absent(),
+            Value<String?> localAudioPath = const Value.absent(),
+            Value<String?> localCoverPath = const Value.absent(),
             Value<bool> isPurchased = const Value.absent(),
             Value<double> progressPercent = const Value.absent(),
             Value<DateTime?> lastReadAt = const Value.absent(),
@@ -4947,6 +5065,8 @@ class $$BooksTableTableManager extends RootTableManager<
             isFeatured: isFeatured,
             drmEnabled: drmEnabled,
             isDownloaded: isDownloaded,
+            localAudioPath: localAudioPath,
+            localCoverPath: localCoverPath,
             isPurchased: isPurchased,
             progressPercent: progressPercent,
             lastReadAt: lastReadAt,
@@ -4968,6 +5088,8 @@ class $$BooksTableTableManager extends RootTableManager<
             Value<bool> isFeatured = const Value.absent(),
             Value<bool> drmEnabled = const Value.absent(),
             Value<bool> isDownloaded = const Value.absent(),
+            Value<String?> localAudioPath = const Value.absent(),
+            Value<String?> localCoverPath = const Value.absent(),
             Value<bool> isPurchased = const Value.absent(),
             Value<double> progressPercent = const Value.absent(),
             Value<DateTime?> lastReadAt = const Value.absent(),
@@ -4989,6 +5111,8 @@ class $$BooksTableTableManager extends RootTableManager<
             isFeatured: isFeatured,
             drmEnabled: drmEnabled,
             isDownloaded: isDownloaded,
+            localAudioPath: localAudioPath,
+            localCoverPath: localCoverPath,
             isPurchased: isPurchased,
             progressPercent: progressPercent,
             lastReadAt: lastReadAt,

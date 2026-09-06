@@ -2,6 +2,7 @@
 /// 
 /// SQLite database using Drift for offline storage of books, bookmarks, notes, etc.
 
+import 'dart:convert';
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -30,6 +31,8 @@ class Books extends Table {
   BoolColumn get isFeatured => boolean().withDefault(const Constant(false))();
   BoolColumn get drmEnabled => boolean().withDefault(const Constant(true))();
   BoolColumn get isDownloaded => boolean().withDefault(const Constant(false))();
+  TextColumn get localAudioPath => text().nullable()();
+  TextColumn get localCoverPath => text().nullable()();
   BoolColumn get isPurchased => boolean().withDefault(const Constant(false))();
   RealColumn get progressPercent => real().withDefault(const Constant(0.0))();
   DateTimeColumn get lastReadAt => dateTime().nullable()();
@@ -157,7 +160,18 @@ class LocalDatabase extends _$LocalDatabase {
   LocalDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(books, books.localAudioPath);
+        await m.addColumn(books, books.localCoverPath);
+      }
+    },
+  );
 
   // Book operations
   Future<List<BookModel>> getAllBooks() async {
@@ -203,12 +217,25 @@ class LocalDatabase extends _$LocalDatabase {
     );
   }
 
-  Future<void> updateBookDownloadStatus(String bookId, bool isDownloaded) async {
+  Future<void> updateBookDownloadStatus(
+    String bookId,
+    bool isDownloaded, {
+    String? localAudioPath,
+    String? localCoverPath,
+  }) async {
     final query = update(books)..where((b) => b.id.equals(bookId));
     await query.write(BooksCompanion(
       isDownloaded: Value(isDownloaded),
+      localAudioPath: localAudioPath != null ? Value(localAudioPath) : const Value.absent(),
+      localCoverPath: localCoverPath != null ? Value(localCoverPath) : const Value.absent(),
       updatedAt: Value(DateTime.now()),
     ));
+  }
+
+  Future<String?> getLocalAudioPath(String bookId) async {
+    final query = select(books)..where((b) => b.id.equals(bookId));
+    final row = await query.getSingleOrNull();
+    return row?.localAudioPath;
   }
 
   Future<void> deleteBook(String id) async {
@@ -552,8 +579,8 @@ class LocalDatabase extends _$LocalDatabase {
     updatedAt: row.updatedAt,
   );
 
-  String _encodeJson(dynamic data) => data.toString();
-  dynamic _decodeJson(String json) => json;
+  String _encodeJson(dynamic data) => jsonEncode(data);
+  dynamic _decodeJson(String json) => jsonDecode(json);
 }
 
 LazyDatabase _openConnection() {

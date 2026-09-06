@@ -18,7 +18,7 @@ from app.core.rate_limit import limiter
 from app.models.user import User, UserDevice
 from app.schemas.auth import (
     UserCreate, UserResponse, TokenResponse, LoginRequest,
-    RefreshRequest, PasswordResetRequest, PasswordChangeRequest,
+    RefreshRequest, PasswordResetRequest, PasswordResetConfirm, PasswordChangeRequest,
     SocialLoginRequest, DeviceInfo, VerifyRequest, VerifyConfirm, VerifyResponse
 )
 
@@ -252,34 +252,118 @@ async def logout(current_user: User = Depends(get_current_active_user)):
 
 
 @router.post("/forgot-password")
+@limiter.limit("5/minute")
 async def forgot_password(
+    request: Request,
     reset_request: PasswordResetRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Request password reset"""
+    """Request password reset. Sends a time-limited reset link by email
+    when VERIFICATION_MODE=live; in sandbox mode the token is returned
+    directly so the flow can be completed locally without an SMTP server."""
     result = await db.execute(select(User).where(User.email == reset_request.email))
     user = result.scalar_one_or_none()
-    
+
+    response: dict = {"message": "If the email exists, a reset link has been sent"}
+
     if user:
-        # TODO: Send password reset email
-        pass
-    
-    # Always return success to prevent email enumeration
-    return {"message": "If the email exists, a reset link has been sent"}
+        reset_token = create_access_token(
+            data={"sub": user.id, "type": "password_reset"},
+            expires_delta=timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+        )
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+
+        if settings.VERIFICATION_MODE == "live":
+            from app.services.email import send_password_reset_email
+            await send_password_reset_email(user.email, reset_url)
+        else:
+            # Sandbox-only: expose the token so the flow completes locally.
+            response["sandbox_reset_token"] = reset_token
+
+    # Always return the same message to prevent email enumeration.
+    return response
 
 
-@router.post("/social/{provider}")
+@router.post("/reset-password")
+@limiter.limit("10/minute")
+async def reset_password(
+    request: Request,
+    data: PasswordResetConfirm,
+    db: AsyncSession = Depends(get_db)
+):
+    """Complete a password reset using the token from /forgot-password."""
+    payload = decode_token(data.token)
+    if payload is None or payload.get("type") != "password_reset":
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.hashed_password = get_password_hash(data.new_password)
+    await db.commit()
+
+    return {"message": "Password has been reset successfully"}
+
+
+@router.post("/social/{provider}", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def social_login(
+    request: Request,
     provider: str,
     login_data: SocialLoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Social login (Google, Apple)"""
-    # TODO: Implement OAuth flow
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"Social login with {provider} not yet implemented"
-    )
+    """Social login (Google, Apple).
+
+    Verifies the provider token server-side, then finds or creates the
+    matching user account (email-verified accounts, no password set).
+    """
+    from app.services.social_auth import verify_provider_token, SocialAuthError
+
+    if provider.lower() not in ("google", "apple"):
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+
+    try:
+        email = await verify_provider_token(provider, login_data.token)
+    except SocialAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = User(email=email, hashed_password=None, is_verified=True)
+        db.add(user)
+        await db.flush()
+
+        device_info = login_data.device_info or DeviceInfo()
+        fingerprint = generate_device_fingerprint(device_info.dict())
+        db.add(UserDevice(
+            user_id=user.id,
+            device_fingerprint=fingerprint,
+            device_name=device_info.device_name,
+            device_type=device_info.device_type,
+            os_version=device_info.os_version,
+            app_version=device_info.app_version,
+            last_ip=request.client.host if request.client else None,
+            is_trusted=True,
+        ))
+        await db.commit()
+    elif not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    access_token = create_access_token(data={"sub": user.id})
+    refresh_token = create_refresh_token(data={"sub": user.id})
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    }
 
 
 @router.get("/me", response_model=UserResponse)

@@ -8,6 +8,7 @@ import '../data/services/auth_service.dart';
 import '../data/services/local_database.dart';
 import '../data/services/sync_service.dart';
 import '../data/services/drm_service.dart';
+import '../data/services/download_service.dart';
 import '../data/services/api_client.dart';
 import '../data/models/payment_model.dart';
 
@@ -68,6 +69,15 @@ final syncServiceProvider = Provider<SyncService>((ref) {
 final drmServiceProvider = Provider<DRMService>((ref) {
   final authService = ref.watch(authServiceProvider);
   return DRMService(authService: authService);
+});
+
+/// Offline download service provider (FRS §9)
+final downloadServiceProvider = Provider<DownloadService>((ref) {
+  final db = ref.watch(databaseProvider);
+  final authService = ref.watch(authServiceProvider);
+  final service = DownloadService(db: db, authService: authService);
+  ref.onDispose(() => service.dispose());
+  return service;
 });
 
 /// Sync status provider

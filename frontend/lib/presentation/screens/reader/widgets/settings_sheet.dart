@@ -10,6 +10,7 @@ class SettingsSheet extends StatelessWidget {
   final double lineHeight;
   final String theme;
   final double playbackSpeed;
+  final double voicePitch;
   final bool autoScroll;
   final Color highlightColor;
   final ReadingMode readingMode;
@@ -17,6 +18,7 @@ class SettingsSheet extends StatelessWidget {
   final Function(double) onLineHeightChanged;
   final Function(String) onThemeChanged;
   final Function(double) onPlaybackSpeedChanged;
+  final Function(double) onVoicePitchChanged;
   final Function(bool) onAutoScrollChanged;
   final Function(Color) onHighlightColorChanged;
   final Function(ReadingMode) onReadingModeChanged;
@@ -27,6 +29,7 @@ class SettingsSheet extends StatelessWidget {
     required this.lineHeight,
     required this.theme,
     required this.playbackSpeed,
+    this.voicePitch = 1.0,
     required this.autoScroll,
     required this.highlightColor,
     this.readingMode = ReadingMode.light,
@@ -34,6 +37,7 @@ class SettingsSheet extends StatelessWidget {
     required this.onLineHeightChanged,
     required this.onThemeChanged,
     required this.onPlaybackSpeedChanged,
+    required this.onVoicePitchChanged,
     required this.onAutoScrollChanged,
     required this.onHighlightColorChanged,
     required this.onReadingModeChanged,
@@ -95,7 +99,9 @@ class SettingsSheet extends StatelessWidget {
                         _ReadingTab(highlightColor: highlightColor,
                             onHighlightColorChanged: onHighlightColorChanged),
                         _AudioTab(playbackSpeed: playbackSpeed,
-                            onPlaybackSpeedChanged: onPlaybackSpeedChanged),
+                            voicePitch: voicePitch,
+                            onPlaybackSpeedChanged: onPlaybackSpeedChanged,
+                            onVoicePitchChanged: onVoicePitchChanged),
                       ],
                     ),
                   ),
@@ -455,11 +461,15 @@ class _HighlightOption extends StatelessWidget {
 
 class _AudioTab extends StatelessWidget {
   final double playbackSpeed;
+  final double voicePitch;
   final Function(double) onPlaybackSpeedChanged;
+  final Function(double) onVoicePitchChanged;
 
   const _AudioTab({
     required this.playbackSpeed,
+    this.voicePitch = 1.0,
     required this.onPlaybackSpeedChanged,
+    required this.onVoicePitchChanged,
   });
 
   @override
@@ -516,6 +526,39 @@ class _AudioTab extends StatelessWidget {
                 ),
               );
             }).toList(),
+          ),
+
+          const SizedBox(height: 28),
+          Text('Voice Tone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 16),
+
+          // Pitch slider (FRS §7: voice tone adjustment)
+          Row(
+            children: [
+              const Text('🎵', style: TextStyle(fontSize: 16)),
+              Expanded(
+                child: Slider(
+                  value: voicePitch,
+                  min: 0.5, max: 2.0,
+                  divisions: 15,
+                  activeColor: AppColors.primary,
+                  label: '${voicePitch.toStringAsFixed(2)}x',
+                  onChanged: onVoicePitchChanged,
+                ),
+              ),
+              const Text('🎶', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Lower', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+              GestureDetector(
+                onTap: () => onVoicePitchChanged(1.0),
+                child: Text('Reset', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
+              ),
+              Text('Higher', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+            ],
           ),
         ],
       ),

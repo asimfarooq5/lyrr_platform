@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # Media
     MAX_UPLOAD_SIZE_MB: int = 500
     MAX_COVER_SIZE_MB: int = 10
-    MEDIA_AUTH_ENABLED: bool = False
+    MEDIA_AUTH_ENABLED: bool = True
     SUPPORTED_AUDIO_FORMATS: List[str] = ["mp3", "m4a", "wav", "flac"]
     ALLOWED_AUDIO_MIME_TYPES: List[str] = ["audio/mpeg", "audio/mp4", "audio/wav", "audio/flac", "audio/x-m4a", "audio/aac"]
     ALLOWED_IMAGE_MIME_TYPES: List[str] = ["image/jpeg", "image/png", "image/webp"]
@@ -90,10 +90,44 @@ class Settings(BaseSettings):
     PAYMENT_CURRENCY: str = "XAF"
     DEFAULT_BOOK_PRICE: float = 500.0
 
+    # Live payment gateway credentials (only required when PAYMENT_MODE=live)
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    ORANGE_MONEY_CLIENT_ID: Optional[str] = None
+    ORANGE_MONEY_CLIENT_SECRET: Optional[str] = None
+    ORANGE_MONEY_MERCHANT_KEY: Optional[str] = None
+    ORANGE_MONEY_API_BASE: str = "https://api.orange.com"
+    MTN_MOMO_SUBSCRIPTION_KEY: Optional[str] = None
+    MTN_MOMO_API_USER: Optional[str] = None
+    MTN_MOMO_API_KEY: Optional[str] = None
+    MTN_MOMO_API_BASE: str = "https://sandbox.momodeveloper.mtn.com"
+    MTN_MOMO_TARGET_ENV: str = "sandbox"
+
+    # Email/phone verification + password reset delivery
+    VERIFICATION_MODE: str = "sandbox"  # sandbox (return code) or live (send email/SMS)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "no-reply@lyrr.app"
+    SMTP_FROM_NAME: str = "LYRR"
+
+    # Generic HTTP SMS gateway (Twilio-compatible). SMS_API_URL receives a
+    # POST with {"to": ..., "message": ...} plus SMS_API_KEY as a Bearer token.
+    SMS_API_URL: Optional[str] = None
+    SMS_API_KEY: Optional[str] = None
+    SMS_SENDER_ID: str = "LYRR"
+
+    # Password reset links point back at the client app / web portal.
+    FRONTEND_URL: str = "http://localhost:8080"
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+
     # Bypass per-book purchase checks so all published books are readable
-    # by any authenticated user. This is the current operating mode — flip
-    # to False once the purchase/licensing flow is wired end to end.
-    BYPASS_LIBRARY_PERMISSIONS: bool = True
+    # by any authenticated user. Defaults to False (FRS §14: books/audio must
+    # not be accessible without a valid purchase/subscription); flip to True
+    # only for demo/sandbox deployments that intentionally skip licensing.
+    BYPASS_LIBRARY_PERMISSIONS: bool = False
     
     @field_validator("SECRET_KEY")
     @classmethod

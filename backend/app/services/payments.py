@@ -81,9 +81,17 @@ class PaymentGateway(abc.ABC):
 
 
 class CardGateway(PaymentGateway):
-    """Credit/Debit card payments via a generic acquiring processor."""
+    """Credit/Debit card payments via Stripe."""
 
     method = METHOD_CARD
+
+    # Stripe uses zero-decimal amounts for these currencies (no "cents").
+    _ZERO_DECIMAL_CURRENCIES = {"xaf", "xof", "jpy", "krw", "vnd"}
+
+    def _stripe_amount(self, amount: float, currency: str) -> int:
+        if currency.lower() in self._ZERO_DECIMAL_CURRENCIES:
+            return int(round(amount))
+        return int(round(amount * 100))
 
     async def create_charge(self, amount, currency, reference, description,
                             customer, meta=None):
@@ -94,53 +102,258 @@ class CardGateway(PaymentGateway):
                 "gateway_reference": f"card_{reference}",
                 "message": "Card charge awaiting confirmation",
             }
-        # In live mode this would call a PSP (Stripe/Checkout.com/etc.).
-        raise PaymentError(
-            "Live card processing is not configured. Set PAYMENT_MODE=sandbox "
-            "for the local checkout flow."
-        )
+        if not settings.STRIPE_SECRET_KEY:
+            raise PaymentError("Live card processing requires STRIPE_SECRET_KEY to be set.")
+
+        import stripe
+        from starlette.concurrency import run_in_threadpool
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            intent = await run_in_threadpool(
+                stripe.PaymentIntent.create,
+                amount=self._stripe_amount(amount, currency),
+                currency=currency.lower(),
+                description=description,
+                metadata={"reference": reference, **(meta or {})},
+                receipt_email=(customer or {}).get("email"),
+            )
+        except Exception as exc:
+            raise PaymentError(f"Stripe charge failed: {exc}") from exc
+
+        return {
+            "status": STATUS_AWAITING,
+            "gateway_reference": intent["id"],
+            "client_secret": intent["client_secret"],
+            "message": "Confirm the card payment using the returned client secret",
+        }
 
     async def verify_charge(self, reference):
         if self.is_sandbox:
             return {"status": STATUS_COMPLETED, "gateway_reference": f"card_{reference}"}
-        raise PaymentError("Live card processing is not configured.")
+        if not settings.STRIPE_SECRET_KEY:
+            raise PaymentError("Live card processing requires STRIPE_SECRET_KEY to be set.")
+
+        import stripe
+        from starlette.concurrency import run_in_threadpool
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            intent = await run_in_threadpool(stripe.PaymentIntent.retrieve, reference)
+        except Exception as exc:
+            raise PaymentError(f"Stripe verification failed: {exc}") from exc
+
+        status_map = {
+            "succeeded": STATUS_COMPLETED,
+            "processing": STATUS_AWAITING,
+            "requires_payment_method": STATUS_FAILED,
+            "requires_action": STATUS_AWAITING,
+            "canceled": STATUS_CANCELLED,
+        }
+        return {
+            "status": status_map.get(intent["status"], STATUS_PENDING),
+            "gateway_reference": intent["id"],
+        }
 
 
-class MobileMoneyGateway(PaymentGateway):
-    """Base Mobile Money gateway (Orange Money / MTN MoMo share the flow)."""
+class OrangeMoneyGateway(PaymentGateway):
+    """Orange Money Web Payment API (api.orange.com)."""
 
-    method = ""
+    method = METHOD_ORANGE_MONEY
+
+    async def _get_access_token(self, client) -> str:
+        import base64
+        creds = base64.b64encode(
+            f"{settings.ORANGE_MONEY_CLIENT_ID}:{settings.ORANGE_MONEY_CLIENT_SECRET}".encode()
+        ).decode()
+        resp = await client.post(
+            f"{settings.ORANGE_MONEY_API_BASE}/oauth/v3/token",
+            headers={"Authorization": f"Basic {creds}",
+                     "Content-Type": "application/x-www-form-urlencoded"},
+            data={"grant_type": "client_credentials"},
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
 
     async def create_charge(self, amount, currency, reference, description,
                             customer, meta=None):
         msisdn = (customer or {}).get("phone") or (meta or {}).get("phone")
         if self.is_sandbox:
-            logger.info(
-                "Sandbox %s charge %s for amount %.2f %s",
-                self.method, reference, amount, currency,
-            )
-            # Mobil money requires the user to approve on their handset; the
-            # charge is placed in awaiting state and confirmed by callback.
+            logger.info("Sandbox orange_money charge %s for amount %.2f %s",
+                        reference, amount, currency)
             return {
                 "status": STATUS_AWAITING if msisdn else STATUS_PENDING,
-                "gateway_reference": f"{self.method}_{reference}",
-                "message": "Confirm the payment on your mobile money wallet" if msisdn
+                "gateway_reference": f"orange_money_{reference}",
+                "message": "Confirm the payment on your Orange Money wallet" if msisdn
                 else "Mobile money charge pending",
             }
-        raise PaymentError(f"Live {self.method} is not configured.")
+        if not (settings.ORANGE_MONEY_CLIENT_ID and settings.ORANGE_MONEY_CLIENT_SECRET
+                and settings.ORANGE_MONEY_MERCHANT_KEY):
+            raise PaymentError(
+                "Live Orange Money requires ORANGE_MONEY_CLIENT_ID/CLIENT_SECRET/MERCHANT_KEY."
+            )
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                token = await self._get_access_token(client)
+                resp = await client.post(
+                    f"{settings.ORANGE_MONEY_API_BASE}/orange-money-webpay/v1/webpayment",
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Type": "application/json", "Accept": "application/json"},
+                    json={
+                        "merchant_key": settings.ORANGE_MONEY_MERCHANT_KEY,
+                        "currency": currency,
+                        "order_id": reference,
+                        "amount": amount,
+                        "return_url": f"{settings.FRONTEND_URL}/payments/return",
+                        "cancel_url": f"{settings.FRONTEND_URL}/payments/cancel",
+                        "notif_url": f"{settings.FRONTEND_URL}/api/v1/payments/webhook/orange_money",
+                        "lang": "en",
+                        "reference": reference,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"Orange Money charge failed: {exc}") from exc
+
+        return {
+            "status": STATUS_AWAITING,
+            "gateway_reference": data.get("pay_token"),
+            "payment_url": data.get("payment_url"),
+            "message": "Complete the payment at the returned payment_url",
+        }
 
     async def verify_charge(self, reference):
         if self.is_sandbox:
-            return {"status": STATUS_COMPLETED, "gateway_reference": f"{self.method}_{reference}"}
-        raise PaymentError(f"Live {self.method} is not configured.")
+            return {"status": STATUS_COMPLETED, "gateway_reference": f"orange_money_{reference}"}
+        if not (settings.ORANGE_MONEY_CLIENT_ID and settings.ORANGE_MONEY_CLIENT_SECRET):
+            raise PaymentError("Live Orange Money is not configured.")
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                token = await self._get_access_token(client)
+                resp = await client.get(
+                    f"{settings.ORANGE_MONEY_API_BASE}/orange-money-webpay/v1/transactionstatus",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"order_id": reference, "amount": None, "pay_token": reference},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"Orange Money verification failed: {exc}") from exc
+
+        status_map = {"SUCCESS": STATUS_COMPLETED, "FAILED": STATUS_FAILED,
+                      "EXPIRED": STATUS_EXPIRED, "PENDING": STATUS_AWAITING}
+        return {
+            "status": status_map.get(data.get("status"), STATUS_PENDING),
+            "gateway_reference": reference,
+        }
 
 
-class OrangeMoneyGateway(MobileMoneyGateway):
-    method = METHOD_ORANGE_MONEY
+class MTNMoMoGateway(PaymentGateway):
+    """MTN Mobile Money Collection API (momodeveloper.mtn.com)."""
 
-
-class MTNMoMoGateway(MobileMoneyGateway):
     method = METHOD_MTN_MOMO
+
+    async def _get_access_token(self, client) -> str:
+        import base64
+        creds = base64.b64encode(
+            f"{settings.MTN_MOMO_API_USER}:{settings.MTN_MOMO_API_KEY}".encode()
+        ).decode()
+        resp = await client.post(
+            f"{settings.MTN_MOMO_API_BASE}/collection/token/",
+            headers={"Authorization": f"Basic {creds}",
+                     "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY},
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+
+    async def create_charge(self, amount, currency, reference, description,
+                            customer, meta=None):
+        msisdn = (customer or {}).get("phone") or (meta or {}).get("phone")
+        if self.is_sandbox:
+            logger.info("Sandbox mtn_momo charge %s for amount %.2f %s",
+                        reference, amount, currency)
+            return {
+                "status": STATUS_AWAITING if msisdn else STATUS_PENDING,
+                "gateway_reference": f"mtn_momo_{reference}",
+                "message": "Confirm the payment on your MTN MoMo wallet" if msisdn
+                else "Mobile money charge pending",
+            }
+        if not (settings.MTN_MOMO_SUBSCRIPTION_KEY and settings.MTN_MOMO_API_USER
+                and settings.MTN_MOMO_API_KEY):
+            raise PaymentError(
+                "Live MTN MoMo requires MTN_MOMO_SUBSCRIPTION_KEY/API_USER/API_KEY."
+            )
+        if not msisdn:
+            raise PaymentError("A phone number is required for MTN Mobile Money.")
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                token = await self._get_access_token(client)
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "X-Reference-Id": reference,
+                    "X-Target-Environment": settings.MTN_MOMO_TARGET_ENV,
+                    "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY,
+                    "Content-Type": "application/json",
+                }
+                resp = await client.post(
+                    f"{settings.MTN_MOMO_API_BASE}/collection/v1_0/requesttopay",
+                    headers=headers,
+                    json={
+                        "amount": str(amount),
+                        "currency": currency,
+                        "externalId": reference,
+                        "payer": {"partyIdType": "MSISDN", "partyId": msisdn},
+                        "payerMessage": description or "LYRR purchase",
+                        "payeeNote": description or "LYRR purchase",
+                    },
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"MTN MoMo charge failed: {exc}") from exc
+
+        return {
+            "status": STATUS_AWAITING,
+            "gateway_reference": reference,  # MTN echoes back X-Reference-Id
+            "message": "Approve the payment prompt on your phone",
+        }
+
+    async def verify_charge(self, reference):
+        if self.is_sandbox:
+            return {"status": STATUS_COMPLETED, "gateway_reference": f"mtn_momo_{reference}"}
+        if not (settings.MTN_MOMO_SUBSCRIPTION_KEY and settings.MTN_MOMO_API_USER
+                and settings.MTN_MOMO_API_KEY):
+            raise PaymentError("Live MTN MoMo is not configured.")
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                token = await self._get_access_token(client)
+                resp = await client.get(
+                    f"{settings.MTN_MOMO_API_BASE}/collection/v1_0/requesttopay/{reference}",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "X-Target-Environment": settings.MTN_MOMO_TARGET_ENV,
+                        "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"MTN MoMo verification failed: {exc}") from exc
+
+        status_map = {"SUCCESSFUL": STATUS_COMPLETED, "FAILED": STATUS_FAILED,
+                      "PENDING": STATUS_AWAITING}
+        return {
+            "status": status_map.get(data.get("status"), STATUS_PENDING),
+            "gateway_reference": reference,
+        }
 
 
 def get_gateway(method: str) -> PaymentGateway:
@@ -281,6 +494,12 @@ async def initiate_payment(
         status = result.get("status", STATUS_PENDING)
         payment.status = status
         payment.gateway_reference = result.get("gateway_reference")
+        # Live-mode gateways return client-side checkout data the app needs
+        # to finish the payment (Stripe client_secret, Orange payment_url).
+        extra = {k: v for k, v in result.items()
+                 if k in ("client_secret", "payment_url") and v}
+        if extra:
+            payment.payment_metadata = {**(payment.payment_metadata or {}), **extra}
         # For card sandbox settlement, auto-complete so checkout works offline.
         if method == METHOD_CARD and status == STATUS_AWAITING and payment.is_auto_confirmable():
             payment.status = STATUS_COMPLETED

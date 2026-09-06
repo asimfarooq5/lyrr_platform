@@ -3,6 +3,7 @@
 /// minimal chrome, progress bar, time remaining, and Aa settings
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -69,6 +70,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   double _margin = 24.0;
   ReadingMode _readingMode = ReadingMode.light;
   double _playbackSpeed = 1.0;
+  double _voicePitch = 1.0; // FRS §7: voice tone adjustment
   bool _autoScroll = true;
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
@@ -280,6 +282,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     await _tts.setLanguage(_ttsLanguageCode(_book?.language));
     await _tts.setSpeechRate(_playbackSpeed);
+    await _tts.setPitch(_voicePitch);
 
     setState(() {
       _isTtsMode = true;
@@ -400,6 +403,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _loadAudio() async {
     try {
+      // Offline mode (FRS §9): prefer a previously downloaded local file so
+      // playback works without a network connection.
+      final db = ref.read(databaseProvider);
+      final localPath = await db.getLocalAudioPath(widget.bookId);
+      if (localPath != null && localPath.isNotEmpty && await File(localPath).exists()) {
+        await _audioPlayer.setFilePath(localPath);
+        return;
+      }
+
       final drmService = ref.read(drmServiceProvider);
       final license = await drmService.getLicense(widget.bookId);
       if (license?.downloadUrl != null) {
@@ -643,6 +655,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               : _readingMode == ReadingMode.sepia ? 'sepia' 
               : 'light',
         playbackSpeed: _playbackSpeed,
+        voicePitch: _voicePitch,
         autoScroll: _autoScroll,
         highlightColor: _highlightColor,
         readingMode: _readingMode,
@@ -661,6 +674,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         onPlaybackSpeedChanged: (v) {
           setState(() => _playbackSpeed = v);
           _audioPlayer.setSpeed(v);
+        },
+        onVoicePitchChanged: (v) {
+          setState(() => _voicePitch = v);
+          _audioPlayer.setPitch(v);
+          if (_isTtsMode) _tts.setPitch(v);
         },
         onAutoScrollChanged: (v) => setState(() => _autoScroll = v),
         onHighlightColorChanged: (v) => setState(() => _highlightColor = v),

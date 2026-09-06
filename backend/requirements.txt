@@ -32,6 +32,16 @@ redis==5.0.1
 
 # Utilities
 python-dotenv==1.0.0
+httpx==0.26.0
+
+# Email / SMS delivery (live verification + password reset + payment webhooks)
+aiosmtplib==3.0.1
+
+# Social login token verification (Google ID tokens)
+google-auth==2.27.0
+
+# Live payment gateway (credit/debit card)
+stripe==8.0.0
 
 # Excel export for admin analytics
 openpyxl==3.1.2
