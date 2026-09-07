@@ -201,7 +201,7 @@ class _WordHighlightWidgetState extends State<_WordHighlightWidget> {
                     width: 5,
                     height: 5,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF6B4EFF),
+                      color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
                   ),
