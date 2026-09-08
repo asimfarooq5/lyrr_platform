@@ -352,7 +352,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _currentChapterIndex = _getChapterIndexForWord(_progress!.wordId);
       }
 
-      await _loadAudio();
+      // A stuck platform channel (e.g. no audio backend on this platform)
+      // must never block the book itself from opening - text still needs
+      // to load. Give audio a bounded window and move on either way.
+      try {
+        await _loadAudio().timeout(const Duration(seconds: 8));
+      } catch (e) {
+        if (mounted) setState(() => _audioError = 'Audio unavailable: $e');
+      }
 
       setState(() {
         _isLoading = false;
@@ -564,7 +571,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         await _audioPlayer.pause();
       } else {
         if (_audioError != null) {
-          await _loadAudio(); // retry loading before playing
+          await _loadAudio().timeout(const Duration(seconds: 8)); // retry loading before playing
         }
         await _audioPlayer.play();
       }
