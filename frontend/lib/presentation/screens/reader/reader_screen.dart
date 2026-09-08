@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -114,6 +115,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_readingMode == ReadingMode.dark) return AppColors.textPrimaryDark;
     return AppColors.textPrimaryLight;
   }
+
+  bool get _isDesktop =>
+      !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
 
   Color get _readingSubtextColor {
     if (_readingMode == ReadingMode.dark) return AppColors.textSecondaryDark;
@@ -1177,12 +1181,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     final chapter = _chapters[_currentChapterIndex];
 
-    return Stack(
-      children: [
-        // Main text
-        SingleChildScrollView(
-          controller: _scrollController,
-          padding: EdgeInsets.symmetric(horizontal: _margin, vertical: 16),
+    // Desktop windows are much wider than a phone; keep the reading column
+    // at a comfortable line length (like a real book page) and let the
+    // extra width become breathing room on either side instead of
+    // stretching text edge-to-edge.
+    final scrollView = SingleChildScrollView(
+      controller: _scrollController,
+      padding: EdgeInsets.symmetric(horizontal: _margin, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: _isDesktop ? 720 : double.infinity),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1273,6 +1281,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             ],
           ),
         ),
+      ),
+    );
+
+    return Stack(
+      children: [
+        // Main text
+        _isDesktop
+            ? Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                trackVisibility: true,
+                child: scrollView,
+              )
+            : scrollView,
 
         // Kindle tap zone indicators (briefly shown on tap)
         if (_showControls)
