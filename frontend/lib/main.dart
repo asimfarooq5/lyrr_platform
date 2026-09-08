@@ -2,12 +2,15 @@
 /// 
 /// Enterprise audiobook synchronization platform
 
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'providers/app_providers.dart';
 import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/auth/login_screen.dart';
@@ -16,16 +19,25 @@ import 'presentation/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // just_audio has no native Linux/Windows implementation at all - without
+  // this, AudioPlayer() throws MissingPluginException the moment it's used
+  // on desktop. media_kit provides that missing backend. Android/iOS/macOS/
+  // web keep just_audio's own native implementation (left as default false).
+  JustAudioMediaKit.ensureInitialized(linux: true, windows: true);
+
   // Initialize shared preferences
   final prefs = await SharedPreferences.getInstance();
 
   // Configure the audio session for spoken-word/audiobook playback. Without
   // this, just_audio uses no session at all on some devices/OEM ROMs, which
   // can mean audio never actually reaches the speaker even though playback
-  // "succeeds" with no error.
-  final audioSession = await AudioSession.instance;
-  await audioSession.configure(const AudioSessionConfiguration.speech());
+  // "succeeds" with no error. Not supported on Linux/Windows desktop, so
+  // skip it there rather than let it throw before the app can start.
+  if (kIsWeb || !(Platform.isLinux || Platform.isWindows)) {
+    final audioSession = await AudioSession.instance;
+    await audioSession.configure(const AudioSessionConfiguration.speech());
+  }
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([

@@ -3,14 +3,10 @@
 /// SQLite database using Drift for offline storage of books, bookmarks, notes, etc.
 
 import 'dart:convert';
-import 'dart:io';
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/constants.dart';
 import '../models/book_model.dart';
 import '../models/user_data_model.dart';
 
@@ -583,10 +579,16 @@ class LocalDatabase extends _$LocalDatabase {
   dynamic _decodeJson(String json) => jsonDecode(json);
 }
 
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, AppConstants.mainDatabase));
-    return NativeDatabase(file);
-  });
+QueryExecutor _openConnection() {
+  // On native platforms (Android/iOS/desktop) this opens a NativeDatabase
+  // file under the app's documents directory; on web it opens a WasmDatabase
+  // backed by web/sqlite3.wasm + web/drift_worker.js. drift_flutter picks
+  // the right implementation at compile time - see its package docs.
+  return driftDatabase(
+    name: 'lyrr_main',
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+      driftWorker: Uri.parse('drift_worker.js'),
+    ),
+  );
 }

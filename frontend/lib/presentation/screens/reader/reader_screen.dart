@@ -581,10 +581,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     } catch (e) {
       if (!mounted) return;
+      // The inline banner below the text (with its own Retry/dismiss) is
+      // the single source of truth for audio errors - a second SnackBar
+      // saying the same thing just felt like the error was stuck twice.
       setState(() => _audioError = 'Playback error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not play audio: $e')),
-      );
     }
   }
 
@@ -1078,6 +1078,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     TextButton(
                       onPressed: _loadAudio,
                       child: const Text('Retry', style: TextStyle(fontSize: 11)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 14),
+                      color: _readingSubtextColor,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      tooltip: 'Dismiss',
+                      onPressed: () => setState(() => _audioError = null),
                     ),
                   ],
                 ),
