@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         "https://lyrr.app",
         "https://admin.lyrr.app",
     ]
+    # Flutter's web dev server binds a new random localhost port every run,
+    # so a fixed allow-list can never cover it — match any localhost/127.0.0.1
+    # port instead. Only applied outside production (see main.py).
+    CORS_ORIGIN_REGEX_DEV: str = r"^https?://(localhost|127\.0\.0\.1):\d+$"
     
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True

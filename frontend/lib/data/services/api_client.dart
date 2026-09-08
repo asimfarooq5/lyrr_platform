@@ -6,7 +6,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
 import '../../core/config.dart';
 import 'auth_service.dart';
 
@@ -59,10 +58,13 @@ class ApiClient {
   }
 
   http.Client _createClient() {
-    // Always validate TLS certificates. Self-signed certs should be handled
-    // by installing the CA, never by disabling verification in app code.
-    final ioClient = HttpClient();
-    return IOClient(ioClient);
+    // http.Client() already dispatches to the right platform client
+    // (IOClient on native, BrowserClient on web) - wrapping dart:io's
+    // HttpClient directly broke every request on web, since dart:io has no
+    // real implementation there. TLS certificates are still validated by
+    // default; self-signed certs should be handled by installing the CA,
+    // never by disabling verification in app code.
+    return http.Client();
   }
 
   /// Get base headers with authentication

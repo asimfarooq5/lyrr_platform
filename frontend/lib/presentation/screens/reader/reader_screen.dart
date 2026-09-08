@@ -16,6 +16,7 @@ import '../../../data/models/book_model.dart';
 import '../../../data/models/user_data_model.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/drm_service.dart';
+import '../../../data/services/sync_service.dart';
 import '../../theme/app_theme.dart';
 import 'widgets/word_span.dart';
 import 'widgets/audio_controls.dart';
@@ -101,6 +102,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Timer? _syncTimer;
   Timer? _progressTimer;
 
+  // Captured in initState() so dispose() can save progress without touching
+  // ref (which Riverpod invalidates before dispose() runs).
+  late final UserDataRepository _userDataRepoForDispose;
+  late final SyncService _syncServiceForDispose;
+  StreamSubscription? _positionSub;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _playerStateSub;
+
   // Reading mode backgrounds
   Color get _readingBg {
     switch (_readingMode) {
@@ -124,9 +133,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return AppColors.textSecondaryLight;
   }
   
+  /// Every callback here can fire after the user has already navigated away
+  /// (a stream event, a timer tick, an async gap) - calling setState() on an
+  /// unmounted State throws, and did throw in practice on every "open a
+  /// book, immediately go back" cycle. This is the one place that decides
+  /// whether it's still safe to update the UI.
+  void _safeSetState(VoidCallback fn) {
+    if (mounted) setState(fn);
+  }
+
   @override
   void initState() {
     super.initState();
+    // Cache the providers dispose() needs. ref becomes unusable once
+    // dispose() starts, so anything dispose()-time code reads from it must
+    // be captured while the widget is still fully alive.
+    _userDataRepoForDispose = ref.read(userDataRepositoryProvider);
+    _syncServiceForDispose = ref.read(syncServiceProvider);
     _loadBook();
     _setupAudioListeners();
     _setupTtsListeners();
@@ -135,12 +158,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   void dispose() {
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _playerStateSub?.cancel();
     _audioPlayer.dispose();
     _tts.stop();
     _scrollController.dispose();
     _syncTimer?.cancel();
     _progressTimer?.cancel();
-    _saveProgress();
+    _saveProgressOnDispose();
     super.dispose();
   }
 
@@ -154,23 +180,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _setupAudioListeners() {
-    _audioPlayer.positionStream.listen((position) {
-      setState(() {
+    _positionSub = _audioPlayer.positionStream.listen((position) {
+      _safeSetState(() {
         _currentPosition = position;
       });
       _syncTextToAudio(position.inMilliseconds / 1000.0);
     });
 
-    _audioPlayer.durationStream.listen((duration) {
+    _durationSub = _audioPlayer.durationStream.listen((duration) {
       if (duration != null) {
-        setState(() {
+        _safeSetState(() {
           _totalDuration = duration;
         });
       }
     });
 
-    _audioPlayer.playerStateStream.listen((state) {
-      setState(() {
+    _playerStateSub = _audioPlayer.playerStateStream.listen((state) {
+      _safeSetState(() {
         _isPlaying = state.playing;
       });
     });
@@ -186,7 +212,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     });
 
     _tts.setErrorHandler((msg) {
-      setState(() {
+      _safeSetState(() {
         _isTtsPlaying = false;
         _isTtsMode = false;
       });
@@ -202,7 +228,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     // Search forward from current position for matching word
     for (int i = _ttsWordIndex; i < paragraph.words.length; i++) {
       if (paragraph.words[i].text.toLowerCase() == word.toLowerCase()) {
-        setState(() {
+        _safeSetState(() {
           _currentWordId = paragraph.words[i].id;
           _ttsWordIndex = i + 1;
         });
@@ -213,7 +239,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     // Fallback: try searching from beginning of paragraph
     for (int i = 0; i < _ttsWordIndex && i < paragraph.words.length; i++) {
       if (paragraph.words[i].text.toLowerCase() == word.toLowerCase()) {
-        setState(() {
+        _safeSetState(() {
           _currentWordId = paragraph.words[i].id;
           _ttsWordIndex = i + 1;
         });
@@ -235,7 +261,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _tts.speak(text);
     } else if (_currentChapterIndex < _chapters.length - 1) {
       // Move to next chapter
-      setState(() {
+      _safeSetState(() {
         _currentChapterIndex++;
         _ttsParagraphIndex = 0;
         _ttsWordIndex = 0;
@@ -248,7 +274,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     } else {
       // Finished reading the whole book
-      setState(() {
+      _safeSetState(() {
         _isTtsPlaying = false;
         _isTtsMode = false;
         _ttsParagraphIndex = 0;
@@ -293,7 +319,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     await _tts.setSpeechRate(_playbackSpeed);
     await _tts.setPitch(_voicePitch);
 
-    setState(() {
+    _safeSetState(() {
       _isTtsMode = true;
       _isTtsPlaying = true;
     });
@@ -304,7 +330,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _stopTts() async {
     await _tts.stop();
-    setState(() {
+    _safeSetState(() {
       _isTtsPlaying = false;
       _isTtsMode = false;
       _ttsParagraphIndex = 0;
@@ -322,7 +348,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _loadBook() async {
-    setState(() {
+    _safeSetState(() {
       _isLoading = true;
       _error = null;
     });
@@ -362,10 +388,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       try {
         await _loadAudio().timeout(const Duration(seconds: 8));
       } catch (e) {
-        if (mounted) setState(() => _audioError = 'Audio unavailable: $e');
+        if (mounted) _safeSetState(() => _audioError = 'Audio unavailable: $e');
       }
 
-      setState(() {
+      _safeSetState(() {
         _isLoading = false;
       });
 
@@ -374,7 +400,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _trackReadingSpeed();
       });
     } catch (e) {
-      setState(() {
+      _safeSetState(() {
         _error = 'Failed to load book: $e';
         _isLoading = false;
       });
@@ -419,26 +445,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _loadAudio() async {
-    setState(() => _audioError = null);
+    _safeSetState(() => _audioError = null);
     try {
       // Offline mode (FRS §9): prefer a previously downloaded local file so
-      // playback works without a network connection.
-      final db = ref.read(databaseProvider);
-      final localPath = await db.getLocalAudioPath(widget.bookId);
-      if (localPath != null && localPath.isNotEmpty && await File(localPath).exists()) {
-        await _audioPlayer.setFilePath(localPath);
-        return;
+      // playback works without a network connection. Not applicable on web
+      // (no filesystem - downloads never land there in the first place).
+      if (!kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final localPath = await db.getLocalAudioPath(widget.bookId);
+        if (localPath != null && localPath.isNotEmpty && await File(localPath).exists()) {
+          await _audioPlayer.setFilePath(localPath);
+          return;
+        }
       }
 
       final drmService = ref.read(drmServiceProvider);
       final license = await drmService.getLicense(widget.bookId);
       if (license?.downloadUrl == null) {
-        setState(() => _audioError = 'No audio available for this book');
+        _safeSetState(() => _audioError = 'No audio available for this book');
         return;
       }
       await _audioPlayer.setUrl(license!.downloadUrl!);
     } catch (e) {
-      if (mounted) setState(() => _audioError = 'Could not load audio: $e');
+      if (mounted) _safeSetState(() => _audioError = 'Could not load audio: $e');
     }
   }
 
@@ -455,7 +484,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_syncData.isEmpty) return;
     final word = _findWordAtPosition(positionSeconds);
     if (word != null && word.id != _currentWordId) {
-      setState(() { _currentWordId = word.id; });
+      _safeSetState(() { _currentWordId = word.id; });
       if (_autoScroll) _scrollToWord(word.id);
     }
   }
@@ -489,12 +518,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _handleTap(TapUpDetails details) {
     HapticFeedback.lightImpact();
     
-    setState(() {
+    _safeSetState(() {
       _tapPosition = details.localPosition;
       _showTapFeedback = true;
     });
     Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) setState(() => _showTapFeedback = false);
+      if (mounted) _safeSetState(() => _showTapFeedback = false);
     });
 
     final screenWidth = MediaQuery.of(context).size.width;
@@ -505,13 +534,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     } else if (tapX > screenWidth * 0.7) {
       _goToNextChapter();
     } else {
-      setState(() { _showControls = !_showControls; });
+      _safeSetState(() { _showControls = !_showControls; });
     }
   }
 
   void _goToPreviousChapter() {
     if (_currentChapterIndex > 0) {
-      setState(() {
+      _safeSetState(() {
         _currentChapterIndex--;
       });
       // Delay scroll reset until after AnimatedSwitcher transition
@@ -524,7 +553,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   void _goToNextChapter() {
     if (_currentChapterIndex < _chapters.length - 1) {
-      setState(() {
+      _safeSetState(() {
         _currentChapterIndex++;
       });
       Future.delayed(AppAnimations.slow, () {
@@ -584,7 +613,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       // The inline banner below the text (with its own Retry/dismiss) is
       // the single source of truth for audio errors - a second SnackBar
       // saying the same thing just felt like the error was stuck twice.
-      setState(() => _audioError = 'Playback error: $e');
+      _safeSetState(() => _audioError = 'Playback error: $e');
     }
   }
 
@@ -598,7 +627,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   /// Kindle-style tap-to-define: tapping a word shows a compact action sheet
   /// with a dictionary lookup plus the existing highlight/note/seek actions.
   void _showWordActionSheet(WordModel word) {
-    setState(() => _selectedWordId = word.id);
+    _safeSetState(() => _selectedWordId = word.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -629,8 +658,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _saveProgress() async {
-    if (_progress == null) return;
-    final userDataRepo = ref.read(userDataRepositoryProvider);
+    await _doSaveProgress(
+      userDataRepo: ref.read(userDataRepositoryProvider),
+      syncService: ref.read(syncServiceProvider),
+    );
+  }
+
+  /// Same save, but for dispose(): ref is invalid there, so it must run on
+  /// the repo/service instances captured back in initState() instead of
+  /// reading providers.
+  void _saveProgressOnDispose() {
+    _doSaveProgress(
+      userDataRepo: _userDataRepoForDispose,
+      syncService: _syncServiceForDispose,
+    );
+  }
+
+  Future<void> _doSaveProgress({
+    required UserDataRepository userDataRepo,
+    required SyncService syncService,
+  }) async {
+    if (_progress == null || _chapters.isEmpty) return;
     final updatedProgress = _progress!.copyWith(
       positionSeconds: _currentPosition.inMilliseconds / 1000.0,
       progressPercent: _calculateProgressPercent(),
@@ -645,7 +693,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         progressPercent: updatedProgress.progressPercent,
       );
     } catch (e) {
-      final syncService = ref.read(syncServiceProvider);
       await syncService.updateProgress(updatedProgress);
     }
   }
@@ -684,7 +731,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result['delete'] == true) {
-          setState(() { _bookmarks.removeWhere((b) => b.wordId == _selectedWordId); });
+          _safeSetState(() { _bookmarks.removeWhere((b) => b.wordId == _selectedWordId); });
         } else {
           final bookmark = await syncService.createBookmark(
             userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
@@ -692,7 +739,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             positionSeconds: _currentPosition.inMilliseconds / 1000.0,
             note: result['note'], color: result['color'],
           );
-          setState(() {
+          _safeSetState(() {
             _bookmarks.removeWhere((b) => b.wordId == _selectedWordId);
             _bookmarks.add(bookmark);
           });
@@ -722,13 +769,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result.isEmpty) {
-          setState(() { _notes.removeWhere((n) => n.wordId == _selectedWordId); });
+          _safeSetState(() { _notes.removeWhere((n) => n.wordId == _selectedWordId); });
         } else {
           final note = await syncService.createNote(
             userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
             content: result, chapterId: _chapters[_currentChapterIndex].id,
           );
-          setState(() {
+          _safeSetState(() {
             _notes.removeWhere((n) => n.wordId == _selectedWordId);
             _notes.add(note);
           });
@@ -757,10 +804,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         autoScroll: _autoScroll,
         highlightColor: _highlightColor,
         readingMode: _readingMode,
-        onFontSizeChanged: (v) => setState(() => _fontSize = v),
-        onLineHeightChanged: (v) => setState(() => _lineHeight = v),
+        onFontSizeChanged: (v) => _safeSetState(() => _fontSize = v),
+        onLineHeightChanged: (v) => _safeSetState(() => _lineHeight = v),
         onThemeChanged: (v) {
-          setState(() {
+          _safeSetState(() {
             switch (v) {
               case 'light': _readingMode = ReadingMode.light; break;
               case 'sepia': _readingMode = ReadingMode.sepia; break;
@@ -770,23 +817,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           });
         },
         onPlaybackSpeedChanged: (v) {
-          setState(() => _playbackSpeed = v);
+          _safeSetState(() => _playbackSpeed = v);
           _audioPlayer.setSpeed(v);
         },
         onVoicePitchChanged: (v) {
-          setState(() => _voicePitch = v);
+          _safeSetState(() => _voicePitch = v);
           _audioPlayer.setPitch(v);
           if (_isTtsMode) _tts.setPitch(v);
         },
-        onAutoScrollChanged: (v) => setState(() => _autoScroll = v),
-        onHighlightColorChanged: (v) => setState(() => _highlightColor = v),
-        onReadingModeChanged: (mode) => setState(() => _readingMode = mode),
+        onAutoScrollChanged: (v) => _safeSetState(() => _autoScroll = v),
+        onHighlightColorChanged: (v) => _safeSetState(() => _highlightColor = v),
+        onReadingModeChanged: (mode) => _safeSetState(() => _readingMode = mode),
       ),
     );
   }
 
   void _toggleFullscreen() {
-    setState(() { _isFullscreen = !_isFullscreen; });
+    _safeSetState(() { _isFullscreen = !_isFullscreen; });
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
@@ -828,7 +875,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         currentChapterIndex: _currentChapterIndex,
         bookmarks: _bookmarks,
         onChapterSelected: (index) {
-          setState(() { _currentChapterIndex = index; });
+          _safeSetState(() { _currentChapterIndex = index; });
           Future.delayed(AppAnimations.slow, () {
             if (mounted) _scrollController.animateTo(0,
                 duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
@@ -1085,7 +1132,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                       tooltip: 'Dismiss',
-                      onPressed: () => setState(() => _audioError = null),
+                      onPressed: () => _safeSetState(() => _audioError = null),
                     ),
                   ],
                 ),
@@ -1101,7 +1148,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               onPlayPause: _togglePlayPause,
               onSeek: (position) => _audioPlayer.seek(position),
               onSpeedChange: (speed) {
-                setState(() => _playbackSpeed = speed);
+                _safeSetState(() => _playbackSpeed = speed);
                 _audioPlayer.setSpeed(speed);
                 if (_isTtsPlaying) _tts.setSpeechRate(speed);
               },

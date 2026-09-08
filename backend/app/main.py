@@ -88,6 +88,7 @@ if settings.RATE_LIMIT_ENABLED:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=None if settings.ENVIRONMENT == "production" else settings.CORS_ORIGIN_REGEX_DEV,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

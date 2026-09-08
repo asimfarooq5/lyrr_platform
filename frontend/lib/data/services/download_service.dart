@@ -8,6 +8,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -56,7 +57,15 @@ class DownloadService {
         .add(progress);
   }
 
+  /// Offline downloads need a real filesystem (dart:io File/Directory),
+  /// which browsers don't expose - kIsWeb is checked everywhere this
+  /// service touches disk so a web build fails fast with a clear message
+  /// instead of a raw "Unsupported operation" from dart:io.
+  static const _webUnsupportedMessage =
+      'Downloads for offline reading are only available in the mobile and desktop app, not in the browser.';
+
   Future<bool> isDownloaded(String bookId) async {
+    if (kIsWeb) return false;
     final path = await _db.getLocalAudioPath(bookId);
     if (path == null) return false;
     return File(path).exists();
@@ -72,6 +81,10 @@ class DownloadService {
   /// Download a book's chapters (text) and audio for offline access.
   Future<void> downloadBook(BookModel book) async {
     final bookId = book.id;
+    if (kIsWeb) {
+      _emit(bookId, const DownloadProgress(state: DownloadState.failed, error: _webUnsupportedMessage));
+      throw Exception(_webUnsupportedMessage);
+    }
     _emit(bookId, const DownloadProgress(state: DownloadState.downloading, progress: 0.0));
 
     try {
@@ -162,6 +175,7 @@ class DownloadService {
 
   /// Remove a downloaded book's local audio (text stays cached for reading).
   Future<void> deleteDownload(String bookId) async {
+    if (kIsWeb) return;
     final path = await _db.getLocalAudioPath(bookId);
     if (path != null) {
       final file = File(path);
