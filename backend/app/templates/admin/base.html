@@ -70,6 +70,9 @@
         .header h2 { color: #1a1a2e; }
         .header-right { display: flex; align-items: center; gap: 16px; }
         .logout-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             padding: 8px 16px;
             background: #fee2e2;
             color: #ef4444;
@@ -113,7 +116,9 @@
         th { text-align: left; padding: 12px 16px; color: #666; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #f0f0f0; }
         td { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
         .badge {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             padding: 4px 10px;
             border-radius: 20px;
             font-size: 11px;
@@ -122,6 +127,9 @@
         .badge-success { background: #d1fae5; color: #059669; }
         .badge-warning { background: #fef3c7; color: #d97706; }
         .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             padding: 10px 20px;
             border: none;
             border-radius: 10px;
@@ -129,6 +137,7 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
+            text-decoration: none;
         }
         .btn-primary { background: #6B4EFF; color: white; }
         .btn-primary:hover { background: #5A3FE8; }
@@ -358,17 +367,17 @@
             <span style="font-size: 18px; font-weight: 600;">LYRR Admin</span>
         </div>
         <div class="sidebar-nav">
-            <a href="/admin/dashboard" class="nav-item {% if page == 'dashboard' %}active{% endif %}">📊 Dashboard</a>
-            <a href="/admin/books" class="nav-item {% if page == 'books' %}active{% endif %}">📚 Books</a>
-            <a href="/admin/users" class="nav-item {% if page == 'users' %}active{% endif %}">👥 Users</a>
-            <a href="/admin/categories" class="nav-item {% if page == 'categories' %}active{% endif %}">🏷️ Categories</a>
-            <a href="/admin/subscriptions" class="nav-item {% if page == 'subscriptions' %}active{% endif %}">💳 Subscriptions</a>
-            <a href="/admin/analytics" class="nav-item {% if page == 'analytics' %}active{% endif %}">📈 Analytics</a>
+            <a href="/admin/dashboard" class="nav-item {% if page == 'dashboard' %}active{% endif %}">{% include "admin/icons/dashboard.svg" %} Dashboard</a>
+            <a href="/admin/books" class="nav-item {% if page == 'books' %}active{% endif %}">{% include "admin/icons/books.svg" %} Books</a>
+            <a href="/admin/users" class="nav-item {% if page == 'users' %}active{% endif %}">{% include "admin/icons/users.svg" %} Users</a>
+            <a href="/admin/categories" class="nav-item {% if page == 'categories' %}active{% endif %}">{% include "admin/icons/tag.svg" %} Categories</a>
+            <a href="/admin/subscriptions" class="nav-item {% if page == 'subscriptions' %}active{% endif %}">{% include "admin/icons/card.svg" %} Subscriptions</a>
+            <a href="/admin/analytics" class="nav-item {% if page == 'analytics' %}active{% endif %}">{% include "admin/icons/analytics.svg" %} Analytics</a>
         </div>
         <div class="sidebar-nav" style="margin-top:auto; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08);">
             <form method="POST" action="/admin/logout" style="display:inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="logout-btn">🚪 Logout</button>
+                <button type="submit" class="logout-btn">{% include "admin/icons/logout.svg" %} Logout</button>
             </form>
         </div>
     </div>

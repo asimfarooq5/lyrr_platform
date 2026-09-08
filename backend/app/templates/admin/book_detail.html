@@ -110,7 +110,7 @@
                         <span class="badge badge-format">{{ m.format | upper }}</span>
                         <span class="badge badge-quality-{{ m.quality or 'high' }}">{{ m.quality or 'High' }}</span>
                         {% if m.is_ai_narrated %}<span class="badge badge-ai">AI</span>{% endif %}
-                        {% if m.is_encrypted %}<span class="badge badge-encrypted">🔒 Encrypted</span>{% endif %}
+                        {% if m.is_encrypted %}<span class="badge badge-encrypted">{% include "admin/icons/lock.svg" %} Encrypted</span>{% endif %}
                     </div>
                 </div>
 
@@ -126,7 +126,7 @@
                     <span class="time-total">{% if m.duration %}{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}{% else %}--:--{% endif %}</span>
                     <form method="POST" action="/admin/books/{{ book.id }}/audio/{{ m.id }}/delete" style="margin-left:auto;" onsubmit="return confirm('Delete this audio?')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button class="btn btn-danger btn-sm">🗑 Delete</button>
+                        <button class="btn btn-danger btn-sm">{% include "admin/icons/trash.svg" %} Delete</button>
                     </form>
                 </div>
             </div>

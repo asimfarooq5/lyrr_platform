@@ -12,8 +12,8 @@
             <tr>
                 <td>{{ user.email }}</td>
                 <td>{% if user.is_active %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-warning">Inactive</span>{% endif %}</td>
-                <td>{{ "✅" if user.is_admin else "—" }}</td>
-                <td>{{ "✅" if user.is_verified else "—" }}</td>
+                <td>{% if user.is_admin %}<span style="color:#059669;">{% include "admin/icons/check.svg" %}</span>{% else %}—{% endif %}</td>
+                <td>{% if user.is_verified %}<span style="color:#059669;">{% include "admin/icons/check.svg" %}</span>{% else %}—{% endif %}</td>
                 <td>{{ user.created_at[:10] if user.created_at else "—" }}</td>
                 <td>
                     <form method="POST" action="/admin/users/{{ user.id }}/toggle" style="display:inline">

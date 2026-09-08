@@ -13,7 +13,7 @@
                 <td>{{ plan.name }}</td>
                 <td>{{ plan.price | format_number }} FCFA</td>
                 <td>{{ plan.interval }}</td>
-                <td>{{ "✅" if plan.is_active else "❌" }}</td>
+                <td>{% if plan.is_active %}<span style="color:#059669;">{% include "admin/icons/check.svg" %}</span>{% else %}<span style="color:#d97706;">{% include "admin/icons/close.svg" %}</span>{% endif %}</td>
                 <td>
                     <form method="POST" action="/admin/subscriptions/plan/{{ plan.id }}/toggle" style="display:inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
