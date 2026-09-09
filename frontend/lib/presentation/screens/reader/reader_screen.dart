@@ -382,9 +382,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
 
       final progressData = await userDataRepo.getProgress(widget.bookId);
+      bool showResumePrompt = false;
       if (progressData != null) {
         _progress = ReadingProgressModel.fromJson(progressData);
-        _currentChapterIndex = _getChapterIndexForWord(_progress!.wordId);
+        // Don't jump the chapter yet - ask first (see _maybeShowResumePrompt
+        // below), so a reader who wants to start over isn't yanked into the
+        // middle of the book before they get a say.
+        final resumeIndex = _getChapterIndexForWord(_progress!.wordId);
+        showResumePrompt = resumeIndex > 0 || _progress!.wordId != null;
       }
 
       // A stuck platform channel (e.g. no audio backend on this platform)
@@ -399,6 +404,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _safeSetState(() {
         _isLoading = false;
       });
+
+      if (showResumePrompt) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showResumePrompt();
+        });
+      }
 
       _progressTimer = Timer.periodic(const Duration(seconds: 10), (_) {
         _saveProgress();
@@ -483,6 +494,42 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       if (words.any((w) => w.id == wordId)) return i;
     }
     return 0;
+  }
+
+  void _showResumePrompt() {
+    showDialog<void>(
+      context: context,
+      // Force an explicit choice - dismissing by tapping outside would
+      // leave the reader on chapter 1 despite having saved progress,
+      // with no obvious way back to where they left off.
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Resume reading?'),
+        content: const Text(
+          'You have unfinished progress in this book. Would you like to '
+          'pick up where you left off, or start over from the beginning?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Start Over'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              final resumeIndex = _getChapterIndexForWord(_progress?.wordId);
+              _safeSetState(() => _currentChapterIndex = resumeIndex);
+              if (_progress?.wordId != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _scrollToWord(_progress!.wordId!);
+                });
+              }
+            },
+            child: const Text('Resume'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _syncTextToAudio(double positionSeconds) {
