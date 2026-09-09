@@ -5,6 +5,7 @@ Run: alembic upgrade head && python seed_data.py
 """
 
 import asyncio
+import itertools
 import json
 import math
 import os
@@ -223,12 +224,21 @@ LOREM_WORDS = [
 ]
 
 
+_word_id_counter = itertools.count()
+
+
 def generate_words(count: int) -> list:
-    """Generate paragraph with word IDs"""
+    """Generate paragraph with word IDs.
+
+    IDs come from a process-wide counter, not a per-call index — the reader
+    highlights every word whose id matches the current playhead, so reusing
+    "w0000", "w0001", ... in each paragraph made every paragraph's Nth word
+    light up simultaneously instead of just the one being read.
+    """
     words = []
-    for i in range(count):
+    for _ in range(count):
         word = random.choice(LOREM_WORDS)
-        words.append({"id": f"w{i:04d}", "text": word})
+        words.append({"id": f"w{next(_word_id_counter):06d}", "text": word})
     return words
 
 

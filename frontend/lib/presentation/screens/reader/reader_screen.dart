@@ -59,6 +59,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _ttsParagraphIndex = 0;
   int _ttsWordIndex = 0;
   
+  // Scaffold.of(context) doesn't work from the app-bar row it's built in
+  // (that context sits above the Scaffold, not below it) — open the
+  // end drawer via this key instead.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   // UI State
   bool _isLoading = true;
   String? _error;
@@ -869,6 +874,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.transparent,
       endDrawer: ChapterListDrawer(
         chapters: _chapters,
@@ -1025,7 +1031,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               IconButton(
                 icon: const Icon(Icons.list),
                 tooltip: 'Table of Contents',
-                onPressed: () => Scaffold.of(context).openEndDrawer(),
+                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
               ),
               // Aa settings
               IconButton(
