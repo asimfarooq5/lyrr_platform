@@ -646,10 +646,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
+  // Demo/seed books ship a short placeholder tone instead of real narration
+  // (generating real audio needs a TTS pipeline the demo server has no disk
+  // space for right now). A chapter with real text but a suspiciously short
+  // clip is that placeholder, not narration - so the main play button reads
+  // it aloud on-device instead, rather than surfacing a beep to the user.
+  bool get _isPlaceholderAudio {
+    if (_totalDuration <= Duration.zero || _chapters.isEmpty) return false;
+    final wordCount = _chapters[_currentChapterIndex].allWords.length;
+    return wordCount > 15 && _totalDuration.inSeconds < (wordCount / 4).ceil();
+  }
+
   Future<void> _togglePlayPause() async {
-    // Stop TTS if it's playing
     if (_isTtsPlaying) {
       await _stopTts();
+      return;
     }
     try {
       if (_isPlaying) {
@@ -657,6 +668,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       } else {
         if (_audioError != null) {
           await _loadAudio().timeout(const Duration(seconds: 8)); // retry loading before playing
+        }
+        if (_isPlaceholderAudio) {
+          await _startTts();
+          return;
         }
         await _audioPlayer.play();
       }
@@ -1192,7 +1207,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             // Audio controls
             AudioControls(
-              isPlaying: _isPlaying,
+              isPlaying: _isPlaying || _isTtsPlaying,
               currentPosition: _currentPosition,
               totalDuration: _totalDuration,
               playbackSpeed: _playbackSpeed,
