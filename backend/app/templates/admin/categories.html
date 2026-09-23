@@ -1,25 +1,52 @@
 {% extends "admin/base.html" %}
 {% block content %}
 <div class="header">
-    <h2>Categories</h2>
-    <button class="btn btn-primary" onclick="showModal('addCatModal')">+ Add Category</button>
+    <div>
+        <h2>Categories</h2>
+        <p style="color:var(--text-3);font-size:13px;margin-top:4px;">
+            Group books so readers can browse by genre in the Store.
+        </p>
+    </div>
+    <button class="btn btn-primary" onclick="showModal('addCatModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add Category
+    </button>
 </div>
-<div class="card">
+
+<div class="card" style="padding:0;overflow:hidden;">
     <table>
-        <thead><tr><th>Name</th><th>Slug</th><th>Actions</th></tr></thead>
+        <thead>
+            <tr><th>Category</th><th>Slug</th><th>Books</th><th style="text-align:right;">Actions</th></tr>
+        </thead>
         <tbody>
             {% for cat in categories %}
             <tr>
-                <td>{{ cat.name }}</td>
-                <td style="font-family:monospace;">{{ cat.slug }}</td>
                 <td>
-                    <form method="POST" action="/admin/categories/{{ cat.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this category?')">
+                    <div class="cat-name">{{ cat.name }}</div>
+                    {% if cat.description %}<div class="muted">{{ cat.description }}</div>{% endif %}
+                </td>
+                <td><span class="mono">{{ cat.slug }}</span></td>
+                <td>
+                    {% if cat.book_count %}
+                        <span class="badge badge-success">{{ cat.book_count }} book{{ '' if cat.book_count == 1 else 's' }}</span>
+                    {% else %}
+                        <span class="badge badge-muted">Empty</span>
+                    {% endif %}
+                </td>
+                <td style="text-align:right;">
+                    <form method="POST" action="/admin/categories/{{ cat.id }}/delete" style="display:inline"
+                          onsubmit="return confirm('Delete this category? Books stay, but lose this grouping.')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="btn btn-danger btn-sm">Delete</button>
                     </form>
                 </td>
             </tr>
             {% endfor %}
+            {% if not categories %}
+            <tr><td colspan="4" class="empty-cell">
+                No categories yet. Add one, then assign it to books from the book editor.
+            </td></tr>
+            {% endif %}
         </tbody>
     </table>
 </div>
@@ -29,18 +56,25 @@
         <h3>Add Category</h3>
         <form method="POST" action="/admin/categories">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
-            <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+            <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="e.g. Fiction" required autofocus></div>
+            <div class="form-group"><label>Description</label><textarea name="description" rows="2" placeholder="Optional short description"></textarea></div>
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="hideModal('addCatModal')" style="background:#f0f0f0;">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="submit" class="btn btn-primary">Save category</button>
             </div>
         </form>
     </div>
 </div>
+
+<style>
+    .cat-name { font-weight:600; color:var(--text); font-size:14px; }
+    .muted { color:var(--text-3); font-size:12.5px; }
+    .mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; color:var(--text-2); }
+    .empty-cell { text-align:center; color:var(--text-3); padding:48px 16px; font-size:13.5px; }
+</style>
+
 <script>
 function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}
 </script>
 {% endblock %}
-endblock %}

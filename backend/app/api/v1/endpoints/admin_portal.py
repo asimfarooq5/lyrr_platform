@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Form, UploadFile
 from fastapi.responses import RedirectResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -30,6 +30,7 @@ from app.core.csrf import generate_csrf_token, verify_csrf_token, revoke_csrf_to
 from app.models.user import User
 from app.models.book import Book, BookMedia, BookStatus, Chapter
 from app.models.content import Category, Author, BookCategory, SubscriptionPlan, UserSubscription, Payment
+from app.models.reading_session import ReadingSession
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -195,15 +196,84 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     stats = {
         "users": (await db.scalar(select(func.count(User.id)))) or 0,
         "books": (await db.scalar(select(func.count(Book.id)))) or 0,
-        "subscriptions": (await db.scalar(select(func.count(UserSubscription.id)))) or 0,
+        "published": (await db.scalar(
+            select(func.count(Book.id)).where(Book.status == BookStatus.PUBLISHED)
+        )) or 0,
+        "subscriptions": (await db.scalar(
+            select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+        )) or 0,
+        "payments_count": (await db.scalar(
+            select(func.count(Payment.id)).where(Payment.status == "completed")
+        )) or 0,
     }
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    stats["revenue"] = int(sum(p.amount for p in payments))
-    stats["revenue_month"] = int(sum(
-        p.amount for p in payments
-        if p.created_at and p.created_at > datetime.now(timezone.utc) - timedelta(days=30)
-    ))
-    ctx = {"request": request, "page": "dashboard", "stats": stats}
+
+    # Revenue totals (kept as SQL aggregates so they scale past a demo dataset).
+    stats["revenue"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed")
+    ) or 0)
+    since_30 = datetime.now(timezone.utc) - timedelta(days=30)
+    stats["revenue_month"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+    ) or 0)
+    stats["sales_month"] = int(await db.scalar(
+        select(func.count(Payment.id))
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+    ) or 0)
+
+    # 14-day revenue trend for the sparkline chart.
+    trend_rows = (await db.execute(
+        select(
+            func.date(Payment.completed_at).label("day"),
+            func.coalesce(func.sum(Payment.amount), 0).label("total"),
+        )
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+        .group_by(func.date(Payment.completed_at))
+        .order_by(func.date(Payment.completed_at))
+    )).all()
+    by_day = {str(r.day): float(r.total) for r in trend_rows}
+    trend = []
+    for offset in range(13, -1, -1):
+        day = (datetime.now(timezone.utc) - timedelta(days=offset)).date()
+        trend.append({"day": day.strftime("%d %b"), "value": by_day.get(str(day), 0.0)})
+    stats["trend"] = trend
+    stats["trend_max"] = max((p["value"] for p in trend), default=0.0) or 1.0
+
+    # Recent payments + best sellers for the activity panels.
+    recent = (await db.execute(
+        select(Payment, User.email)
+        .join(User, User.id == Payment.user_id, isouter=True)
+        .order_by(Payment.created_at.desc())
+        .limit(6)
+    )).all()
+    recent_payments = [
+        {
+            "email": email or "—",
+            "amount": p.amount,
+            "currency": p.currency,
+            "method": p.method,
+            "status": p.status,
+            "description": p.description,
+            "created_at": p.created_at,
+        }
+        for p, email in recent
+    ]
+
+    top_books = (await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+        .where(Book.status == BookStatus.PUBLISHED)
+        .order_by(Book.sales_count.desc(), Book.created_at.desc())
+        .limit(5)
+    )).all()
+
+    ctx = {
+        "request": request,
+        "page": "dashboard",
+        "stats": stats,
+        "recent_payments": recent_payments,
+        "top_books": top_books,
+    }
     return templates.TemplateResponse(request, "admin/dashboard.html", await _inject_csrf(ctx, request))
 
 # ===== BOOKS =====
@@ -569,16 +639,48 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
 # ===== USERS =====
 
 @router.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request, db: AsyncSession = Depends(get_db)):
+async def users_page(request: Request, search: str = "", page_no: int = 1,
+                     db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    result = await db.execute(select(User).order_by(User.created_at.desc()).limit(100))
-    users = result.scalars().all()
-    ctx = {"request": request, "page": "users",
-        "users": [{"id": u.id, "email": u.email, "is_active": u.is_active,
-                    "is_admin": u.is_admin, "is_verified": u.is_verified,
-                    "created_at": str(u.created_at)[:10] if u.created_at else ""} for u in users]}
+    PAGE_SIZE = 25
+    page = max(1, page_no or 1)
+    base = select(User)
+    if search and search.strip():
+        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        base = base.where(or_(
+            User.email.ilike(f"%{escaped}%", escape="\\"),
+            User.phone.ilike(f"%{escaped}%", escape="\\"),
+        ))
+    total = await db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    users = (await db.execute(
+        base.order_by(User.created_at.desc())
+        .offset((page - 1) * PAGE_SIZE)
+        .limit(PAGE_SIZE)
+    )).scalars().all()
+    pages = max(1, -(-total // PAGE_SIZE))
+    ctx = {
+        "request": request,
+        "page": "users",
+        "users": [
+            {
+                "id": u.id,
+                "email": u.email,
+                "phone": u.phone,
+                "is_active": u.is_active,
+                "is_admin": u.is_admin,
+                "is_verified": u.is_verified,
+                "phone_verified": u.phone_verified,
+                "created_at": u.created_at,
+            }
+            for u in users
+        ],
+        "total": total,
+        "page_no": page,
+        "pages": pages,
+        "search": search or "",
+    }
     return templates.TemplateResponse(request, "admin/users.html", await _inject_csrf(ctx, request))
 
 @router.post("/users/create")
@@ -631,7 +733,24 @@ async def subscriptions_page(request: Request, db: AsyncSession = Depends(get_db
     if not admin:
         return RedirectResponse(url="/admin/login")
     plans = (await db.execute(select(SubscriptionPlan).order_by(SubscriptionPlan.price))).scalars().all()
-    user_subs = (await db.execute(select(UserSubscription).order_by(UserSubscription.created_at.desc()).limit(50))).scalars().all()
+    # Join user + plan so the table shows emails and plan names, not raw UUIDs.
+    sub_rows = (await db.execute(
+        select(UserSubscription, User.email, SubscriptionPlan.name)
+        .join(User, User.id == UserSubscription.user_id)
+        .join(SubscriptionPlan, SubscriptionPlan.id == UserSubscription.plan_id, isouter=True)
+        .order_by(UserSubscription.created_at.desc())
+        .limit(50)
+    )).all()
+    user_subs = [
+        {
+            "email": email,
+            "plan_name": plan_name or "—",
+            "status": sub.status,
+            "started_at": sub.started_at,
+            "expires_at": sub.expires_at,
+        }
+        for sub, email, plan_name in sub_rows
+    ]
     ctx = {"request": request, "page": "subscriptions", "plans": plans, "user_subs": user_subs}
     return templates.TemplateResponse(request, "admin/subscriptions.html", await _inject_csrf(ctx, request))
 
@@ -668,8 +787,23 @@ async def categories_page(request: Request, db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    cats = (await db.execute(select(Category))).scalars().all()
-    ctx = {"request": request, "page": "categories", "categories": cats}
+    cats = (await db.execute(select(Category).order_by(Category.name))).scalars().all()
+    # Count books per category so the list shows real usage.
+    counts = dict((await db.execute(
+        select(BookCategory.category_id, func.count(BookCategory.book_id))
+        .group_by(BookCategory.category_id)
+    )).all())
+    categories = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "slug": c.slug,
+            "description": c.description,
+            "book_count": counts.get(c.id, 0),
+        }
+        for c in cats
+    ]
+    ctx = {"request": request, "page": "categories", "categories": categories}
     return templates.TemplateResponse(request, "admin/categories.html", await _inject_csrf(ctx, request))
 
 @router.post("/categories")
@@ -703,16 +837,86 @@ async def analytics_page(request: Request, db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
+    days = 30
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
     stats = {
         "users": (await db.scalar(select(func.count(User.id)))) or 0,
+        "new_users": (await db.scalar(
+            select(func.count(User.id)).where(User.created_at >= since)
+        )) or 0,
         "books": (await db.scalar(select(func.count(Book.id)))) or 0,
+        "subscriptions": (await db.scalar(
+            select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+        )) or 0,
     }
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    stats["revenue"] = int(sum(p.amount for p in payments))
-    stats["payments"] = len(payments)
-    books = (await db.execute(select(Book).order_by(Book.created_at.desc()).limit(5))).scalars().all()
-    stats["popular"] = [{"title": b.title, "author": b.author} for b in books]
-    ctx = {"request": request, "page": "analytics", "stats": stats}
+
+    # Revenue
+    stats["revenue"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed")
+    ) or 0)
+    stats["revenue_month"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed", Payment.completed_at >= since)
+    ) or 0)
+    stats["payments"] = await db.scalar(
+        select(func.count(Payment.id)).where(Payment.status == "completed")
+    ) or 0
+    stats["payments_month"] = await db.scalar(
+        select(func.count(Payment.id))
+        .where(Payment.status == "completed", Payment.completed_at >= since)
+    ) or 0
+    stats["avg_order"] = int(stats["revenue"] / stats["payments"]) if stats["payments"] else 0
+
+    # Revenue split by payment method
+    stats["by_method"] = [
+        {"method": m or "unknown", "total": float(t or 0), "count": int(c or 0)}
+        for m, t, c in (await db.execute(
+            select(Payment.method, func.sum(Payment.amount), func.count(Payment.id))
+            .where(Payment.status == "completed", Payment.completed_at >= since)
+            .group_by(Payment.method)
+            .order_by(func.sum(Payment.amount).desc())
+        )).all()
+    ]
+
+    # Reading engagement
+    stats["reading_sessions"] = await db.scalar(
+        select(func.count(ReadingSession.id)).where(ReadingSession.date >= since.date())
+    ) or 0
+    stats["reading_minutes"] = int((await db.scalar(
+        select(func.coalesce(func.sum(ReadingSession.duration_seconds), 0))
+        .where(ReadingSession.date >= since.date())
+    ) or 0) / 60)
+
+    # Most-read books (by session volume), falling back to newest when empty.
+    popular = (await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at,
+               func.count(ReadingSession.id).label("sessions"))
+        .join(ReadingSession, ReadingSession.book_id == Book.id)
+        .group_by(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+        .order_by(func.count(ReadingSession.id).desc())
+        .limit(8)
+    )).all()
+    if not popular:
+        newest = (await db.execute(
+            select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+            .order_by(Book.created_at.desc())
+            .limit(8)
+        )).all()
+        stats["popular"] = [
+            {"id": r.id, "title": r.title, "author": r.author,
+             "cover_url": r.cover_url, "updated_at": r.updated_at, "sessions": 0}
+            for r in newest
+        ]
+    else:
+        stats["popular"] = [
+            {"id": r.id, "title": r.title, "author": r.author,
+             "cover_url": r.cover_url, "updated_at": r.updated_at, "sessions": r.sessions}
+            for r in popular
+        ]
+
+    ctx = {"request": request, "page": "analytics", "stats": stats, "days": days}
     return templates.TemplateResponse(request, "admin/analytics.html", await _inject_csrf(ctx, request))
 
 @router.get("/analytics/export")
