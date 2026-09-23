@@ -2,7 +2,7 @@
 Admin endpoints - dashboard, analytics, management
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -56,17 +56,27 @@ async def get_dashboard(
 
 @router.get("/users")
 async def list_users(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(_require_admin),
 ):
-    """List all users"""
+    """List users (paginated)."""
+    query = select(User)
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.where(User.email.ilike(f"%{escaped}%", escape="\\"))
+
+    total = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
     result = await db.execute(
-        select(User).offset(skip).limit(limit)
+        query.order_by(User.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     users = result.scalars().all()
-    
+
     return {
         "users": [
             {
@@ -75,11 +85,14 @@ async def list_users(
                 "is_active": u.is_active,
                 "is_admin": u.is_admin,
                 "is_verified": u.is_verified,
+                "phone": u.phone,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
             }
             for u in users
         ],
-        "total": len(users),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
     }
 
 

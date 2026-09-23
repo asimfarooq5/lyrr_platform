@@ -38,25 +38,66 @@ _COVER_PALETTE = [
 ]
 
 
-def generate_cover(book_id: str, title: str, author: str) -> str:
-    """Create a placeholder cover (solid color + title/author) and return
-    its filename, so book.cover_url can point at a real, servable image
-    instead of staying null."""
-    from PIL import Image, ImageDraw, ImageFont
+def generate_cover(book_id: str, title: str, author: str) -> str | None:
+    """Render a designed placeholder cover and return its filename.
 
-    color = _COVER_PALETTE[abs(hash(book_id)) % len(_COVER_PALETTE)]
-    width, height = 600, 900
-    img = Image.new("RGB", (width, height), color)
+    Not a flat colour swatch: a vertical gradient, a soft vignette, a rule
+    above the title and a tracked author line — so seeded/demo books look like
+    real covers in the Store and in the admin table.
+
+    Returns ``None`` when Pillow is not installed — covers are cosmetic and
+    the app falls back to a placeholder, so seeding must not fail over it.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        print("   (Pillow not installed — skipping generated covers)")
+        return None
+
+    base = _COVER_PALETTE[abs(hash(book_id)) % len(_COVER_PALETTE)]
+    width, height = 800, 1200
+    img = Image.new("RGB", (width, height), base)
     draw = ImageDraw.Draw(img)
 
-    try:
-        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
-        author_font = ImageFont.truetype("DejaVuSans.ttf", 30)
-    except OSError:
-        title_font = ImageFont.load_default()
-        author_font = ImageFont.load_default()
+    def mix(c, other, t):
+        return tuple(int(c[i] + (other[i] - c[i]) * t) for i in range(3))
 
-    def wrap(text: str, font, max_width: int) -> list[str]:
+    # Vertical gradient: darker at the top, lighter toward the bottom.
+    dark = mix(base, (0, 0, 0), 0.38)
+    light = mix(base, (255, 255, 255), 0.16)
+    for y in range(height):
+        t = y / height
+        # ease so the dark band stays at the top third
+        tt = t ** 1.6
+        draw.line([(0, y), (width, y)], fill=mix(dark, light, tt))
+
+    # Soft radial vignette in the top-right for depth.
+    for r in range(420, 0, -12):
+        alpha = (1 - r / 420) * 0.16
+        col = mix(base, (255, 255, 255), alpha)
+        draw.ellipse(
+            [width - 120 - r, -120 - r, width - 120 + r, -120 + r],
+            fill=col,
+        )
+
+    # Inner border frame.
+    margin = 46
+    draw.rectangle(
+        [margin, margin, width - margin, height - margin],
+        outline=mix(base, (255, 255, 255), 0.45), width=2,
+    )
+
+    def load_font(path, size):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            return ImageFont.load_default()
+
+    title_font = load_font("DejaVuSans-Bold.ttf", 62)
+    rule_font = load_font("DejaVuSans.ttf", 34)
+    author_font = load_font("DejaVuSans.ttf", 30)
+
+    def wrap(text, font, max_width):
         words, lines, current = text.split(), [], ""
         for w in words:
             trial = f"{current} {w}".strip()
@@ -70,19 +111,44 @@ def generate_cover(book_id: str, title: str, author: str) -> str:
             lines.append(current)
         return lines
 
-    title_lines = wrap(title, title_font, width - 80)
-    y = height / 2 - (len(title_lines) * 56) / 2
+    inset = margin + 56
+    max_text_width = width - inset * 2
+
+    title_lines = wrap(title, title_font, max_text_width)[:5]
+    line_h = 78
+    block_h = len(title_lines) * line_h
+    y = (height - block_h) / 2 - 40
+
     for line in title_lines:
         w = draw.textlength(line, font=title_font)
+        # subtle drop shadow for legibility over the gradient
+        draw.text(((width - w) / 2 + 2, y + 2), line, font=title_font,
+                  fill=mix(base, (0, 0, 0), 0.25))
         draw.text(((width - w) / 2, y), line, font=title_font, fill="white")
-        y += 56
+        y += line_h
 
-    author_text = author.upper()
-    w = draw.textlength(author_text, font=author_font)
-    draw.text(((width - w) / 2, y + 24), author_text, font=author_font, fill=(255, 255, 255, 200))
+    # Short rule dividing title and author.
+    rule_w = 96
+    draw.line(
+        [(width - rule_w) / 2, y + 26, (width + rule_w) / 2, y + 26],
+        fill=mix(base, (255, 255, 255), 0.6), width=3,
+    )
+
+    author_text = (author or "").upper()
+    for line in wrap(author_text, author_font, max_text_width)[:2]:
+        w = draw.textlength(line, font=author_font)
+        draw.text(((width - w) / 2, y + 60), line, font=author_font,
+                  fill=mix(base, (255, 255, 255), 0.82))
+        y += 42
+
+    # Small wordmark at the bottom.
+    mark = "LYRR"
+    w = draw.textlength(mark, font=rule_font)
+    draw.text(((width - w) / 2, height - margin - 68), mark,
+              font=rule_font, fill=mix(base, (255, 255, 255), 0.55))
 
     filename = f"{book_id}.jpg"
-    img.save(os.path.join(COVERS_DIR, filename), "JPEG", quality=85)
+    img.save(os.path.join(COVERS_DIR, filename), "JPEG", quality=88)
     return filename
 
 
@@ -271,25 +337,41 @@ async def seed():
     await init_db()
 
     async with AsyncSessionLocal() as session:
-        # Create admin user
-        admin = User(
-            email=SEED_ADMIN_EMAIL,
-            hashed_password=get_password_hash(SEED_ADMIN_PASSWORD),
-            is_active=True,
-            is_verified=True,
-            is_admin=True,
-        )
-        session.add(admin)
+        # Create admin user (idempotent — re-running seed must not crash)
+        existing_admin = (await session.execute(
+            select(User).where(User.email == SEED_ADMIN_EMAIL)
+        )).scalar_one_or_none()
+        if existing_admin:
+            admin = existing_admin
+            admin.hashed_password = get_password_hash(SEED_ADMIN_PASSWORD)
+            print(f"   Admin user already exists: {SEED_ADMIN_EMAIL}")
+        else:
+            admin = User(
+                email=SEED_ADMIN_EMAIL,
+                hashed_password=get_password_hash(SEED_ADMIN_PASSWORD),
+                is_active=True,
+                is_verified=True,
+                is_admin=True,
+            )
+            session.add(admin)
 
-        # Create demo user
-        demo = User(
-            email=SEED_DEMO_EMAIL,
-            hashed_password=get_password_hash(SEED_DEMO_PASSWORD),
-            is_active=True,
-            is_verified=True,
-            is_admin=False,
-        )
-        session.add(demo)
+        # Create demo user (idempotent)
+        existing_demo = (await session.execute(
+            select(User).where(User.email == SEED_DEMO_EMAIL)
+        )).scalar_one_or_none()
+        if existing_demo:
+            demo = existing_demo
+            demo.hashed_password = get_password_hash(SEED_DEMO_PASSWORD)
+            print(f"   Demo user already exists: {SEED_DEMO_EMAIL}")
+        else:
+            demo = User(
+                email=SEED_DEMO_EMAIL,
+                hashed_password=get_password_hash(SEED_DEMO_PASSWORD),
+                is_active=True,
+                is_verified=True,
+                is_admin=False,
+            )
+            session.add(demo)
         await session.flush()
 
         # Create subscription plans (FRS §10: monthly / annual)
@@ -318,6 +400,14 @@ async def seed():
 
         # Create books
         for i, book_data in enumerate(SAMPLE_BOOKS):
+            # Skip a title that is already present so re-running seed is safe.
+            existing_book = (await session.execute(
+                select(Book).where(Book.title == book_data["title"])
+            )).scalar_one_or_none()
+            if existing_book:
+                print(f"   Book already exists, skipping: {book_data['title']}")
+                continue
+
             book_id = str(uuid.uuid4())
             cover_filename = generate_cover(book_id, book_data["title"], book_data["author"])
             book = Book(
@@ -331,7 +421,7 @@ async def seed():
                 status=BookStatus.PUBLISHED,
                 is_featured=book_data["is_featured"],
                 price=book_data.get("price"),
-                cover_url=f"/media/covers/{cover_filename}",
+                cover_url=f"/media/covers/{cover_filename}" if cover_filename else None,
                 drm_enabled=False,
             )
             session.add(book)

@@ -32,9 +32,10 @@ class Author(Base):
 class BookCategory(Base):
     __tablename__ = "book_categories"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
-    category_id = Column(String(36), ForeignKey("categories.id", ondelete="CASCADE"))
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
+    category_id = Column(String(36), ForeignKey("categories.id", ondelete="CASCADE"), index=True)
     category = relationship("Category", back_populates="books")
+    book = relationship("Book", back_populates="categories")
 
 
 class SubscriptionPlan(Base):
@@ -52,8 +53,8 @@ class SubscriptionPlan(Base):
 class UserSubscription(Base):
     __tablename__ = "user_subscriptions"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    plan_id = Column(String(36), ForeignKey("subscription_plans.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    plan_id = Column(String(36), ForeignKey("subscription_plans.id", ondelete="CASCADE"), index=True)
     status = Column(String(20), default="active")  # active, expired, cancelled
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)
@@ -63,7 +64,7 @@ class UserSubscription(Base):
 class Payment(Base):
     __tablename__ = "payments"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     amount = Column(Float, nullable=False)
     currency = Column(String(3), default="XAF")
     method = Column(String(50), nullable=False)  # card, orange_money, mtn_momo

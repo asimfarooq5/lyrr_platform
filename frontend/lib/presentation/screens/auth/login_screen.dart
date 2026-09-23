@@ -69,13 +69,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Future<void> _loginWithApple() async {
-    // TODO: Implement Apple Sign-In
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Apple Sign-In coming soon')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -241,12 +234,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: _loginWithGoogle,
                   icon: const Icon(Icons.g_mobiledata, size: 24),
                   label: const Text('Continue with Google'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _loginWithApple,
-                  icon: const Icon(Icons.apple, size: 24),
-                  label: const Text('Continue with Apple'),
                 ),
                 const SizedBox(height: 32),
                 

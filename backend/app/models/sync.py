@@ -2,7 +2,7 @@
 Sync models for offline/online synchronization
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Text, JSON, Enum
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, Text, JSON, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -29,8 +29,8 @@ class SyncQueue(Base):
     __tablename__ = "sync_queue"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    device_id = Column(String(36), ForeignKey("user_devices.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    device_id = Column(String(36), ForeignKey("user_devices.id", ondelete="CASCADE"), index=True)
     
     # Operation details
     operation = Column(Enum(SyncOperation), nullable=False)
@@ -60,7 +60,7 @@ class SyncConflict(Base):
     __tablename__ = "sync_conflicts"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     
     # Conflict details
     entity_type = Column(Enum(SyncEntityType), nullable=False)
@@ -92,8 +92,8 @@ class SyncCheckpoint(Base):
     __tablename__ = "sync_checkpoints"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    device_id = Column(String(36), ForeignKey("user_devices.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    device_id = Column(String(36), ForeignKey("user_devices.id", ondelete="CASCADE"), index=True)
     
     # Checkpoint
     last_sync_at = Column(DateTime(timezone=True), nullable=False)
@@ -108,5 +108,7 @@ class SyncCheckpoint(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     __table_args__ = (
-        # Unique constraint on user + device
+        # One checkpoint per user per device — `get_checkpoint` reads with
+        # scalar_one_or_none(), so duplicates would raise.
+        UniqueConstraint("user_id", "device_id", name="uq_sync_checkpoint_user_device"),
     )

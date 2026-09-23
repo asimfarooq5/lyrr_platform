@@ -14,10 +14,13 @@ from datetime import datetime, timedelta, timezone
 import uuid
 import os
 import io
+import logging
 import shutil
 import zipfile
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -49,7 +52,41 @@ def format_number(value):
     except (ValueError, TypeError):
         return str(value)
 
+
+def _parse_price(value: str) -> Optional[float]:
+    """Parse a price form field. Blank -> None (free); invalid -> None (free).
+
+    Never raises: a typo in the admin form must not 500 the request.
+    """
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        price = float(text)
+    except (ValueError, TypeError):
+        return None
+    return price if price >= 0 else None
+
 templates.env.filters["format_number"] = format_number
+
+
+def cover_url(cover_path: Optional[str], updated_at=None) -> Optional[str]:
+    """Append a cache-busting version to a cover URL.
+
+    Cover files keep the same path when replaced, so without this the browser
+    (and the Flutter image cache) would keep showing the old artwork after an
+    admin uploads a new one.
+    """
+    if not cover_path:
+        return cover_path
+    version = int(updated_at.timestamp()) if updated_at else 1
+    separator = "&" if "?" in cover_path else "?"
+    return f"{cover_path}{separator}v={version}"
+
+
+# Expose helpers to every template (upload size limits, cover cache-busting).
+templates.env.globals["settings"] = settings
+templates.env.globals["cover_url"] = cover_url
 
 
 async def _get_admin(request: Request, db: AsyncSession) -> Optional[User]:
@@ -191,7 +228,7 @@ async def create_book(request: Request, title: str = Form(...), author: str = Fo
         return RedirectResponse(url="/admin/login")
     book = Book(id=str(uuid.uuid4()), title=title, author=author or "Unknown",
                 description=description, language=language,
-                price=float(price) if price.strip() else None,
+                price=_parse_price(price),
                 status=BookStatus.DRAFT)
     db.add(book)
     await db.commit()
@@ -210,8 +247,12 @@ async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depe
     current_category = (await db.execute(
         select(BookCategory.category_id).where(BookCategory.book_id == book_id)
     )).scalar_one_or_none()
+    chapter_count = await db.scalar(
+        select(func.count(Chapter.id)).where(Chapter.book_id == book_id)
+    ) or 0
     ctx = {"request": request, "page": "books", "book": book,
-           "categories": categories, "current_category_id": current_category}
+           "categories": categories, "current_category_id": current_category,
+           "chapter_count": chapter_count}
     return templates.TemplateResponse(request, "admin/book_detail.html", await _inject_csrf(ctx, request))
 
 @router.post("/books/{book_id}")
@@ -233,7 +274,7 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
     book.author = author or book.author
     book.description = description
     book.book_type = book_type
-    book.price = float(price) if price.strip() else None
+    book.price = _parse_price(price)
     if status in (BookStatus.DRAFT.value, BookStatus.PUBLISHED.value, BookStatus.ARCHIVED.value):
         book.status = BookStatus(status)
         if book.status == BookStatus.PUBLISHED and not book.published_at:
@@ -417,6 +458,9 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
             author_el = metadata.find("dc:creator", dc_ns) or metadata.find("creator")
             if author_el is not None and author_el.text:
                 book.author = author_el.text[:255]
+            publisher_el = metadata.find("dc:publisher", dc_ns) or metadata.find("publisher")
+            if publisher_el is not None and publisher_el.text:
+                book.publisher = publisher_el.text[:255]
 
         # Extract cover image if available
         cover_href = None
@@ -510,11 +554,17 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
         await db.commit()
 
     except Exception as e:
-        print(f"EPUB parse error: {e}")
+        # Surface the failure to the admin instead of pretending it worked.
+        logger.exception("EPUB import failed for book %s", book_id)
+        await db.rollback()
+        return RedirectResponse(
+            url=f"/admin/books/{book_id}?error=epub_import_failed",
+            status_code=302,
+        )
     finally:
         shutil.rmtree(epub_dir, ignore_errors=True)
 
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?uploaded=epub", status_code=302)
 
 # ===== USERS =====
 

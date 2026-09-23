@@ -97,18 +97,27 @@ class Settings(BaseSettings):
     # Live payment gateway credentials (only required when PAYMENT_MODE=live)
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
-    ORANGE_MONEY_CLIENT_ID: Optional[str] = None
-    ORANGE_MONEY_CLIENT_SECRET: Optional[str] = None
-    ORANGE_MONEY_MERCHANT_KEY: Optional[str] = None
-    ORANGE_MONEY_API_BASE: str = "https://api.orange.com"
-    MTN_MOMO_SUBSCRIPTION_KEY: Optional[str] = None
-    MTN_MOMO_API_USER: Optional[str] = None
-    MTN_MOMO_API_KEY: Optional[str] = None
-    MTN_MOMO_API_BASE: str = "https://sandbox.momodeveloper.mtn.com"
-    MTN_MOMO_TARGET_ENV: str = "sandbox"
+
+    # CamPay — Mobile Money aggregator for MTN + Orange (Cameroon).
+    # Docs: https://demo.campay.net/en/developer/
+    # Sandbox base: https://demo.campay.net/api   Production: https://www.campay.net/api
+    CAMPAY_BASE_URL: str = "https://demo.campay.net/api"
+    # Either the permanent app token (APP KEYS) or the app username/password
+    # issued when you register an application on Campay.
+    CAMPAY_PERMANENT_TOKEN: Optional[str] = None
+    CAMPAY_USERNAME: Optional[str] = None
+    CAMPAY_PASSWORD: Optional[str] = None
+    # Used to validate the HS256 JWT signature on Campay webhook callbacks.
+    CAMPAY_WEBHOOK_KEY: Optional[str] = None
 
     # Email/phone verification + password reset delivery
     VERIFICATION_MODE: str = "sandbox"  # sandbox (return code) or live (send email/SMS)
+    # Safety gate: even in sandbox/VERIFICATION_MODE, OTPs and password-reset
+    # tokens are only echoed back in API responses when this is explicitly
+    # enabled AND the app is not running in production. Defaults to False so a
+    # production deploy can never leak credentials through a mis-set sandbox
+    # mode.
+    DEV_EXPOSE_TOKENS: bool = False
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
@@ -137,6 +146,22 @@ class Settings(BaseSettings):
     # not be accessible without a valid purchase/subscription); flip to True
     # only for demo/sandbox deployments that intentionally skip licensing.
     BYPASS_LIBRARY_PERMISSIONS: bool = False
+
+    # Lifetime of the short-lived, book-scoped token that audio URLs carry in
+    # their query string (players and the downloader cannot send headers).
+    # Long enough to cover one listening session plus seeking/seeking-retries,
+    # short enough that a URL leaked into a log stops working quickly.
+    MEDIA_TOKEN_EXPIRE_MINUTES: int = 180
+
+    @property
+    def expose_dev_tokens(self) -> bool:
+        """True only when it is safe to echo OTPs / reset tokens in responses.
+
+        Requires an explicit opt-in AND a non-production environment, so a
+        production deployment can never leak credentials via a leftover sandbox
+        setting.
+        """
+        return self.DEV_EXPOSE_TOKENS and self.ENVIRONMENT != "production"
     
     @field_validator("SECRET_KEY")
     @classmethod

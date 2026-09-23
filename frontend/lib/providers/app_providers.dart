@@ -141,6 +141,25 @@ class BooksRepository {
     return [];
   }
 
+  /// Distinct authors with published book counts (FRS §5).
+  Future<List<({String name, int bookCount})>> getAuthors() async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.authors,
+    );
+
+    if (response.success && response.data != null) {
+      return (response.data!['items'] as List? ?? [])
+          .map((a) => (
+                name: (a['name'] ?? '') as String,
+                bookCount: (a['book_count'] ?? 0) as int,
+              ))
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+    }
+
+    return [];
+  }
+
   Future<Map<String, dynamic>?> getBook(String bookId) async {
     final response = await apiClient.get<Map<String, dynamic>>(
       ApiEndpoints.book(bookId),

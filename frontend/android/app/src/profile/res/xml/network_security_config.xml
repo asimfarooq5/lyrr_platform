@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Profile builds only.
+
+  Same rationale as the debug source set: profiling runs against a local dev
+  backend need plain HTTP. Release builds stay HTTPS-only via the main
+  source set config.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

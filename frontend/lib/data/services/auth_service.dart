@@ -161,7 +161,7 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Social login (Google, Apple)
+  /// Social login with a provider-issued identity token (e.g. Google)
   Future<ApiResponse<UserModel>> socialLogin({
     required String provider,
     required String token,

@@ -8,16 +8,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from typing import List, Optional, Dict, Any
+import json
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.api.v1.endpoints.auth import get_current_active_user
-from app.core.security import generate_drm_key
+from app.core.security import generate_drm_key, create_media_token
 from app.models.user import User
 from app.models.book import Book, Chapter, BookMedia, UserBook, BookStatus, Language
 from app.schemas.book import (
     BookResponse, BookDetailResponse, BookListResponse,
-    BookSearchRequest, LicenseResponse, BookContentResponse, BookSyncResponse
+    BookSearchRequest, LicenseResponse, BookContentResponse, BookSyncResponse,
+    AdminBookUpdate
 )
 
 router = APIRouter()
@@ -67,6 +69,35 @@ async def list_books(
         "total": total,
         "page": page,
         "page_size": page_size
+    }
+
+
+@router.get("/authors")
+async def list_authors(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List distinct authors with their published book counts (FRS §5).
+
+    Declared BEFORE the ``/{book_id}`` route on purpose — FastAPI matches in
+    registration order, so a later declaration would have "authors" swallowed
+    as a book id.
+    """
+    result = await db.execute(
+        select(Book.author, func.count(Book.id).label("book_count"))
+        .where(
+            Book.status == BookStatus.PUBLISHED,
+            Book.author.isnot(None),
+            Book.author != "",
+        )
+        .group_by(Book.author)
+        .order_by(Book.author.asc())
+    )
+    return {
+        "items": [
+            {"name": row.author, "book_count": row.book_count}
+            for row in result.all()
+        ]
     }
 
 
@@ -220,16 +251,16 @@ async def get_license(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get DRM license for book"""
-    # Accept device_id from body or query
-    import json
+    # Body is optional and only carries an optional device_id.
     body = await request.body()
     device_id = None
     if body:
         try:
             data = json.loads(body)
-            device_id = data.get("device_id")
-        except:
-            pass
+            if isinstance(data, dict):
+                device_id = data.get("device_id")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
     
     # Verify user has book (bypassable for MVP/demo)
     user_book = None
@@ -261,6 +292,15 @@ async def get_license(
     if audio_url and audio_url.startswith("/"):
         base_url = str(request.base_url).rstrip("/")
         audio_url = f"{base_url}{audio_url}"
+
+    # The player and the offline downloader cannot send an Authorization
+    # header, so the audio URL carries its own short-lived, book-scoped token.
+    # Minted fresh here (rather than reusing the access token) so a URL that
+    # leaks into a log expires quickly and can only ever fetch this one book.
+    if audio_url:
+        media_token = create_media_token(book_id, current_user.id)
+        separator = "&" if "?" in audio_url else "?"
+        audio_url = f"{audio_url}{separator}token={media_token}"
     
     return {
         "license_key": license_key,
@@ -349,24 +389,30 @@ async def download_book(
 @router.put("/{book_id}")
 async def update_book(
     book_id: str,
-    book_data: Dict[str, Any],
+    book_data: AdminBookUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Update a book (admin use)"""
+    """Update a book (admin use).
+
+    Only the fields declared on ``AdminBookUpdate`` can be changed — the request
+    is validated against an explicit allow-list so a client can never overwrite
+    arbitrary model columns (mass assignment).
+    """
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin privileges required")
-    
+
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
-    for key, value in book_data.items():
-        if hasattr(book, key):
-            setattr(book, key, value)
-    
+
+    # exclude_unset: only apply fields the client actually sent.
+    for key, value in book_data.model_dump(exclude_unset=True).items():
+        setattr(book, key, value)
+
     await db.commit()
+    await db.refresh(book)
     return {"message": "Book updated", "book_id": book_id}
 
 

@@ -276,8 +276,9 @@ async def forgot_password(
         if settings.VERIFICATION_MODE == "live":
             from app.services.email import send_password_reset_email
             await send_password_reset_email(user.email, reset_url)
-        else:
-            # Sandbox-only: expose the token so the flow completes locally.
+        elif settings.expose_dev_tokens:
+            # Local-dev only: expose the token so the flow can be completed
+            # without an SMTP server. Never enabled in production.
             response["sandbox_reset_token"] = reset_token
 
     # Always return the same message to prevent email enumeration.
@@ -410,8 +411,9 @@ async def request_verification(
         "message": f"Verification code sent to {channel}",
         "verified": False,
         "expires_in": verification.OTP_TTL_SECONDS,
-        # Sandbox-only: expose the OTP so the flow completes locally.
-        **({"sandbox_otp": code} if code else {}),
+        # Local-dev only: echo the OTP so the flow can be completed without an
+        # SMS/email provider. Never enabled in production.
+        **({"sandbox_otp": code} if code and settings.expose_dev_tokens else {}),
     }
 
 

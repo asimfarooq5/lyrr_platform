@@ -83,6 +83,41 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def create_media_token(
+    book_id: str,
+    user_id: str,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Create a short-lived, book-scoped token for audio streaming.
+
+    WHY A SEPARATE TOKEN TYPE (rather than reusing the access token):
+
+    Audio is consumed by two things that cannot attach an `Authorization`
+    header — `just_audio`'s player and the offline downloader — so the media
+    URL has to carry its own credential in the query string.
+
+    Putting the long-lived *access* token in a URL would be a real
+    vulnerability: URLs end up in player logs, proxy logs and browser history,
+    and an access token there would grant full account access. This token is
+    deliberately narrow — it is scoped to ONE book, expires quickly, and is
+    accepted only by the audio endpoint.
+
+    Cover images deliberately do NOT use this: catalog art is public (it is
+    shown while browsing the store), whereas the book's text and audio are the
+    protected content FRS §14 is about.
+    """
+    to_encode: Dict[str, Any] = {
+        "sub": user_id,
+        "book_id": book_id,
+        "type": "media",
+    }
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=settings.MEDIA_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode["exp"] = expire
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
 def encrypt_data(data: str) -> str:
     """Encrypt sensitive data"""
     return cipher_suite.encrypt(data.encode()).decode()

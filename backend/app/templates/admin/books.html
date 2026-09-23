@@ -1,83 +1,206 @@
 {% extends "admin/base.html" %}
 {% block content %}
 <div class="header">
-    <h2>Books</h2>
-    <button class="btn btn-primary" onclick="showModal('addBookModal')">+ Add Book</button>
+    <div>
+        <h2>Books</h2>
+        <p style="color:#8a8f98;font-size:13px;margin-top:4px;">
+            {{ books | length }} title{{ '' if books | length == 1 else 's' }} in the catalogue
+        </p>
+    </div>
+    <button class="btn btn-primary" onclick="showModal('addBookModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add Book
+    </button>
 </div>
-<div class="card">
-    <table>
-        <thead><tr><th>Title</th><th>Author</th><th>Type</th><th>Price</th><th>Status</th><th>Audio</th><th>Cover</th><th>Actions</th></tr></thead>
+
+<!-- Toolbar: search + status filter -->
+<div class="toolbar">
+    <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f98" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="text" id="bookSearch" placeholder="Search by title or author…" oninput="filterBooks()">
+    </div>
+    <select id="statusFilter" class="filter-select" onchange="filterBooks()">
+        <option value="">All statuses</option>
+        <option value="published">Published</option>
+        <option value="draft">Draft</option>
+        <option value="archived">Archived</option>
+    </select>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden;">
+    <table id="booksTable">
+        <thead>
+            <tr>
+                <th style="width:64px;"></th>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th>Audio</th>
+                <th style="text-align:right;">Actions</th>
+            </tr>
+        </thead>
         <tbody>
             {% for book in books %}
-            <tr>
-                <td><a href="/admin/books/{{ book.id }}" style="color:#6B4EFF;text-decoration:none;font-weight:600;">{{ book.title }}</a></td>
-                <td>{{ book.author }}</td>
-                <td><span style="font-size:12px;color:#666;">{{ book.book_type or 'fiction' }}</span></td>
-                <td>{% if book.price %}{{ book.price | round(2) }}{% else %}<span style="color:#16a34a;">Free</span>{% endif %}</td>
+            <tr data-title="{{ (book.title ~ ' ' ~ (book.author or '')) | lower }}"
+                data-status="{{ book.status.value }}">
                 <td>
-                    <span style="font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;
-                        background:{{ '#dcfce7' if book.status.value == 'published' else ('#fef3c7' if book.status.value == 'draft' else '#f3f4f6') }};
-                        color:{{ '#166534' if book.status.value == 'published' else ('#92400e' if book.status.value == 'draft' else '#6b7280') }};">
-                        {{ book.status.value }}
-                    </span>
+                    <a href="/admin/books/{{ book.id }}" class="cover-thumb-link">
+                        {% if book.cover_url %}
+                            <img src="{{ cover_url(book.cover_url, book.updated_at) }}" alt="{{ book.title }}" class="cover-thumb"
+                                 onerror="this.replaceWith(makeCoverPlaceholder('{{ book.title | e }}'))">
+                        {% else %}
+                            <div class="cover-thumb cover-thumb-empty">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b9bec7" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4 3-3 6 6"/></svg>
+                            </div>
+                        {% endif %}
+                    </a>
+                </td>
+                <td>
+                    <a href="/admin/books/{{ book.id }}" class="book-title">{{ book.title }}</a>
+                    <div class="book-author">{{ book.author or 'Unknown author' }}</div>
+                </td>
+                <td><span class="tag">{{ book.book_type or 'fiction' }}</span></td>
+                <td>
+                    {% if book.price %}
+                        <span class="price">{{ '%g' % book.price }} <span class="price-cur">XAF</span></span>
+                    {% else %}
+                        <span class="badge badge-free">Free</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge badge-{{ book.status.value }}">{{ book.status.value }}</span>
                 </td>
                 <td>
                     {% if book.media %}
                         {% set m = book.media[0] %}
-                        <div style="display:flex;align-items:center;gap:6px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
                             <button class="play-btn-sm" onclick="event.stopPropagation(); toggleAudioList(this,'{{ m.audio_url }}')" aria-label="Play preview">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
                             </button>
                             {% if m.duration %}
-                            <span style="font-size:11px;color:#888;">{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}</span>
+                            <span class="muted">{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}</span>
                             {% endif %}
                         </div>
                     {% else %}
-                        <span style="color:#d97706;">{% include "admin/icons/close.svg" %}</span>
+                        <span class="muted" title="No audio — the app narrates with on-device text-to-speech">TTS only</span>
                     {% endif %}
                 </td>
-                <td>{% if book.cover_url %}<span style="color:#059669;">{% include "admin/icons/check.svg" %}</span>{% else %}<span style="color:#d97706;">{% include "admin/icons/close.svg" %}</span>{% endif %}</td>
-                <td>
-                    <a href="/admin/books/{{ book.id }}" class="btn btn-sm" style="background:#6B4EFF;color:white;text-decoration:none;">Edit</a>
-                    <button class="btn btn-danger btn-sm" onclick="confirmDelete('{{ book.id }}','{{ book.title }}')">Delete</button>
+                <td style="text-align:right;white-space:nowrap;">
+                    <a href="/admin/books/{{ book.id }}" class="btn btn-sm btn-primary">Edit</a>
+                    <button class="btn btn-danger btn-sm" onclick="confirmDelete('{{ book.id }}','{{ book.title | e }}')">Delete</button>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    <div id="noResults" class="empty-state" style="display:none;">
+        <p>No books match your search.</p>
+    </div>
+    {% if not books %}
+    <div class="empty-state">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#c9ced6" stroke-width="1.4"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <h3>No books yet</h3>
+        <p>Add your first title to get started.</p>
+    </div>
+    {% endif %}
 </div>
 
+<!-- Add Book modal -->
 <div id="addBookModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)hideModal('addBookModal')">
     <div class="modal">
         <h3>Add Book</h3>
         <form method="POST" action="/admin/books">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Title</label><input type="text" name="title" required></div>
+            <div class="form-group"><label>Title</label><input type="text" name="title" required autofocus></div>
             <div class="form-group"><label>Author</label><input type="text" name="author"></div>
             <div class="form-group"><label>Description</label><textarea name="description" rows="3"></textarea></div>
             <div class="form-group"><label>Language</label><select name="language">
                 <option value="en">English</option><option value="fr">Français</option>
                 <option value="es">Español</option><option value="de">Deutsch</option>
             </select></div>
+            <div class="form-group">
+                <label>Price (leave blank for free)</label>
+                <input type="text" name="price" placeholder="e.g. 2500">
+            </div>
+            <p class="form-hint">After saving you can upload the EPUB/text, a cover, and optionally the audio.</p>
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="hideModal('addBookModal')" style="background:#f0f0f0;">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="submit" class="btn btn-primary">Create book</button>
             </div>
         </form>
     </div>
 </div>
+
 <form id="deleteForm" method="POST" style="display:none;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 </form>
+
+<style>
+    .toolbar { display:flex; gap:12px; margin-bottom:16px; }
+    .search-box { flex:1; position:relative; display:flex; align-items:center; background:#fff;
+                  border:1px solid #e6e8ec; border-radius:12px; padding:0 14px; }
+    .search-box svg { flex-shrink:0; }
+    .search-box input { border:none; outline:none; padding:12px 10px; font-size:14px; width:100%; background:transparent; }
+    .filter-select { background:#fff; border:1px solid #e6e8ec; border-radius:12px; padding:0 14px; font-size:14px; color:#454b54; cursor:pointer; }
+
+    .cover-thumb-link { display:block; }
+    .cover-thumb { width:44px; height:66px; object-fit:cover; border-radius:6px;
+                   box-shadow:0 2px 6px rgba(20,20,40,0.16); background:#eef0f4; display:block; }
+    .cover-thumb-empty { display:flex; align-items:center; justify-content:center; border:1px dashed #d8dce3; }
+
+    .book-title { color:#1a1a2e; text-decoration:none; font-weight:600; font-size:14px; }
+    .book-title:hover { color:#6B4EFF; }
+    .book-author { color:#8a8f98; font-size:12.5px; margin-top:2px; }
+
+    .tag { background:#f2f3f7; color:#5b6472; padding:3px 9px; border-radius:6px; font-size:11.5px; font-weight:600; }
+    .price { font-weight:700; color:#1a1a2e; font-size:14px; }
+    .price-cur { font-weight:600; color:#8a8f98; font-size:11px; }
+    .muted { color:#8a8f98; font-size:12px; }
+
+    .badge-free      { background:#dcfce7; color:#166534; }
+    .badge-published { background:#dcfce7; color:#166534; }
+    .badge-draft     { background:#fef3c7; color:#92400e; }
+    .badge-archived  { background:#f3f4f6; color:#6b7280; }
+
+    .empty-state { text-align:center; padding:64px 24px; color:#8a8f98; }
+    .empty-state h3 { color:#1a1a2e; margin:12px 0 4px; font-size:16px; }
+    .form-hint { font-size:12px; color:#8a8f98; margin:-6px 0 8px; }
+</style>
+
 <script>
 function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}
 function confirmDelete(id,title){
-    if(confirm('Delete "'+title+'"?')){
+    if(confirm('Delete "'+title+'"? This cannot be undone.')){
         var f=document.getElementById('deleteForm');
         f.action='/admin/books/'+id+'/delete';
         f.submit();
     }
+}
+
+// Client-side search + status filter over the rendered table.
+function filterBooks(){
+    var q = document.getElementById('bookSearch').value.trim().toLowerCase();
+    var st = document.getElementById('statusFilter').value;
+    var rows = document.querySelectorAll('#booksTable tbody tr');
+    var visible = 0;
+    rows.forEach(function(row){
+        var matchesText = !q || (row.dataset.title || '').includes(q);
+        var matchesStatus = !st || row.dataset.status === st;
+        var show = matchesText && matchesStatus;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    document.getElementById('noResults').style.display = (visible === 0 && rows.length) ? 'block' : 'none';
+}
+
+// Fallback thumbnail when a cover image is missing/broken.
+function makeCoverPlaceholder(title){
+    var d = document.createElement('div');
+    d.className = 'cover-thumb cover-thumb-empty';
+    d.title = title;
+    return d;
 }
 </script>
 {% endblock %}

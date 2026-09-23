@@ -14,6 +14,7 @@ from sqlalchemy import select, desc
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+from jose import jwt, JWTError
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -246,32 +247,63 @@ async def confirm_payment(
     return payment
 
 
-@router.post("/webhook/orange_money", include_in_schema=False)
-async def orange_money_webhook(
+@router.post("/webhook/campay", include_in_schema=False)
+async def campay_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Server-to-server callback Orange Money posts to notif_url on payment
-    status change. Never trusts the payload's status directly - it re-checks
-    the charge with Orange's own transactionstatus endpoint before
-    completing the order, so a forged POST here can't fake a payment.
-    """
-    body = await request.json()
-    order_id = body.get("order_id") or body.get("reference")
-    if not order_id:
-        raise HTTPException(status_code=400, detail="Missing order_id")
+    """CamPay callback, fired when a mobile-money transaction settles.
 
-    result = await db.execute(select(Payment).where(Payment.reference == order_id))
+    CamPay posts (or GETs) the transaction to the callback URL configured in
+    the app: ``status``, ``reference``, ``external_reference``, ``signature``…
+    We validate the HS256 ``signature`` JWT with the app's webhook key and then
+    re-check the transaction with CamPay before completing the order, so a
+    forged callback cannot fake a payment.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        # CamPay can be configured for GET callbacks, which deliver query params.
+        body = dict(request.query_params)
+
+    # 1. Authenticity: validate the HS256 signature JWT when a key is configured.
+    signature = body.get("signature")
+    if settings.CAMPAY_WEBHOOK_KEY:
+        if not signature:
+            raise HTTPException(status_code=401, detail="Missing webhook signature")
+        try:
+            jwt.decode(
+                signature,
+                settings.CAMPAY_WEBHOOK_KEY,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    # Only "collect" (payment in) concerns us; "withdraw" is a payout.
+    if body.get("endpoint") and body.get("endpoint") != "collect":
+        return {"message": "ignored"}
+
+    # 2. Locate our order. We send our own reference as external_reference.
+    our_reference = body.get("external_reference") or body.get("reference")
+    if not our_reference:
+        raise HTTPException(status_code=400, detail="Missing reference")
+
+    result = await db.execute(select(Payment).where(Payment.reference == our_reference))
     payment = result.scalar_one_or_none()
-    if not payment or payment.method != payment_service.METHOD_ORANGE_MONEY:
+    if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
     if payment.status == payment_service.STATUS_COMPLETED:
         return {"message": "already completed"}
 
+    # 3. Never trust the payload — verify with CamPay itself.
     gateway = payment_service.get_gateway(payment.method)
     try:
-        gateway_status = await gateway.verify_charge(payment.gateway_reference or payment.reference)
+        gateway_status = await gateway.verify_charge(
+            payment.gateway_reference or payment.reference
+        )
     except payment_service.PaymentError:
         return {"message": "verification failed, will retry"}
 

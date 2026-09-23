@@ -8,6 +8,7 @@ import '../../../providers/app_providers.dart';
 import '../../../data/models/book_model.dart';
 import '../../theme/app_theme.dart';
 import '../reader/reader_screen.dart';
+import 'authors_screen.dart';
 
 class DiscoverTab extends ConsumerStatefulWidget {
   const DiscoverTab({super.key});
@@ -247,6 +248,15 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       appBar: AppBar(
         title: const Text('Store'),
         actions: [
+          // Browse by author (FRS §5)
+          IconButton(
+            icon: const Icon(Icons.people_alt_outlined),
+            tooltip: 'Browse authors',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AuthorsScreen()),
+            ),
+          ),
           // Language filter
           PopupMenuButton<String?>(
             icon: const Icon(Icons.language),
