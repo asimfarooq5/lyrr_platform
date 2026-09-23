@@ -1,40 +1,185 @@
 {% extends "admin/base.html" %}
 {% block content %}
 <div class="header">
-    <h2>Analytics</h2>
-    <a href="/admin/analytics/export" class="btn btn-primary">{% include "admin/icons/download.svg" %} Export Excel</a>
+    <div>
+        <h2>Analytics</h2>
+        <p style="color:var(--text-3);font-size:13px;margin-top:4px;">
+            Sales, revenue and engagement · last {{ days }} days
+        </p>
+    </div>
+    <div class="header-right">
+        <a href="/admin/analytics/export" class="btn btn-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            Export Excel
+        </a>
+    </div>
 </div>
+
+<!-- ===== Revenue KPIs ===== -->
 <div class="stats">
     <div class="stat-card">
-        <div class="icon" style="background:rgba(107,78,255,0.1);color:#6B4EFF;">{% include "admin/icons/users.svg" %}</div>
-        <div class="value">{{ stats.users }}</div>
-        <div class="label">Total Users</div>
+        <div class="icon" style="background:rgba(212,160,23,0.14);color:#D4A017;">{% include "admin/icons/coins.svg" %}</div>
+        <div>
+            <div class="value">{{ '{:,.0f}'.format(stats.revenue_month) }} <span class="unit">XAF</span></div>
+            <div class="label">Revenue · {{ days }} days</div>
+        </div>
     </div>
     <div class="stat-card">
-        <div class="icon" style="background:rgba(0,217,192,0.1);color:#00D9C0;">{% include "admin/icons/books.svg" %}</div>
-        <div class="value">{{ stats.books }}</div>
-        <div class="label">Total Books</div>
+        <div class="icon" style="background:var(--primary-soft);color:var(--primary);">{% include "admin/icons/cart.svg" %}</div>
+        <div>
+            <div class="value">{{ stats.payments_month }}</div>
+            <div class="label">Sales · {{ days }} days</div>
+        </div>
     </div>
     <div class="stat-card">
-        <div class="icon" style="background:rgba(255,107,107,0.1);color:#FF6B6B;">{% include "admin/icons/coins.svg" %}</div>
-        <div class="value">{{ stats.revenue | format_number }} FCFA</div>
-        <div class="label">Total Revenue</div>
+        <div class="icon" style="background:rgba(0,217,192,0.12);color:#0d9488;">{% include "admin/icons/analytics.svg" %}</div>
+        <div>
+            <div class="value">{{ '{:,.0f}'.format(stats.avg_order) }} <span class="unit">XAF</span></div>
+            <div class="label">Average order value</div>
+        </div>
     </div>
     <div class="stat-card">
-        <div class="icon" style="background:rgba(255,215,0,0.1);color:#D4A017;">{% include "admin/icons/cart.svg" %}</div>
-        <div class="value">{{ stats.payments }}</div>
-        <div class="label">Completed Payments</div>
+        <div class="icon" style="background:rgba(255,107,107,0.12);color:#e11d48;">{% include "admin/icons/users.svg" %}</div>
+        <div>
+            <div class="value">{{ stats.new_users }}</div>
+            <div class="label">New readers · {{ days }} days</div>
+        </div>
     </div>
 </div>
-<div class="card">
-    <h3 style="margin-bottom:16px;">Most Popular Books</h3>
-    <table>
-        <thead><tr><th>#</th><th>Title</th><th>Author</th></tr></thead>
-        <tbody>
-            {% for book in stats.popular %}
-            <tr><td>{{ loop.index }}</td><td>{{ book.title }}</td><td>{{ book.author }}</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+
+<div class="analytics-grid">
+    <!-- ===== Revenue by method ===== -->
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-head">
+            <div>
+                <h3>Revenue by Payment Method</h3>
+                <div class="card-sub">Completed payments in the last {{ days }} days</div>
+            </div>
+        </div>
+        {% if stats.by_method %}
+            {% set max_total = stats.by_method[0].total or 1 %}
+            <div class="method-list">
+                {% for m in stats.by_method %}
+                <div class="method-row">
+                    <div class="method-name">{{ m.method | replace('_', ' ') | title }}</div>
+                    <div class="method-bar-wrap">
+                        <div class="method-bar" style="width: {{ ((m.total / max_total) * 100) | round(1) }}%;"></div>
+                    </div>
+                    <div class="method-amount">{{ '{:,.0f}'.format(m.total) }} <span>XAF</span></div>
+                    <div class="method-count muted">{{ m.count }} sale{{ '' if m.count == 1 else 's' }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state" style="padding:40px 20px;"><p>No completed payments in this period.</p></div>
+        {% endif %}
+    </div>
+
+    <!-- ===== Engagement ===== -->
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-head">
+            <div>
+                <h3>Engagement</h3>
+                <div class="card-sub">Reading activity in the last {{ days }} days</div>
+            </div>
+        </div>
+        <div class="mini-stats">
+            <div class="mini-stat">
+                <div class="mini-value">{{ stats.reading_sessions }}</div>
+                <div class="mini-label">Reading sessions</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-value">{{ '{:,}'.format(stats.reading_minutes) }}</div>
+                <div class="mini-label">Minutes read</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-value">{{ stats.subscriptions }}</div>
+                <div class="mini-label">Active subscriptions</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-value">{{ stats.books }}</div>
+                <div class="mini-label">Books in catalogue</div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<!-- ===== Most popular books ===== -->
+<div class="card" style="margin-top:24px;">
+    <div class="card-head">
+        <div>
+            <h3>Most Popular Books</h3>
+            <div class="card-sub">Ranked by reading sessions</div>
+        </div>
+        <div class="revenue-total">
+            {{ '{:,.0f}'.format(stats.revenue) }}
+            <span>XAF lifetime</span>
+        </div>
+    </div>
+    {% if stats.popular %}
+    <div class="popular-grid">
+        {% for b in stats.popular %}
+        <a class="popular-item" href="/admin/books/{{ b.id }}">
+            {% if b.cover_url %}
+                <img src="{{ cover_url(b.cover_url, b.updated_at) }}" alt="{{ b.title }}">
+            {% else %}
+                <div class="popular-noimg">{% include "admin/icons/books.svg" %}</div>
+            {% endif %}
+            <div class="popular-rank">#{{ loop.index }}</div>
+            <div class="popular-title">{{ b.title }}</div>
+            <div class="popular-author">{{ b.author or 'Unknown' }}</div>
+            <div class="muted">
+                {% if b.sessions %}{{ b.sessions }} session{{ '' if b.sessions == 1 else 's' }}{% else %}No reads yet{% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:40px 20px;"><p>No books yet.</p></div>
+    {% endif %}
+</div>
+
+<style>
+    .unit { font-size:15px; font-weight:600; color:var(--text-3); }
+    .analytics-grid { display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap:24px; align-items:start; }
+    @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } }
+
+    .card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
+    .card-head h3 { font-size:15.5px; color:var(--text); margin-bottom:3px; }
+    .card-sub { font-size:12.5px; color:var(--text-3); }
+    .revenue-total { text-align:right; font-size:19px; font-weight:700; color:var(--text); letter-spacing:-0.5px; }
+    .revenue-total span { display:block; font-size:11px; font-weight:600; color:var(--text-3); margin-top:2px; }
+
+    .method-list { display:flex; flex-direction:column; gap:16px; }
+    .method-row { display:grid; grid-template-columns: 110px 1fr auto; gap:12px; align-items:center; }
+    .method-name { font-size:13px; font-weight:600; color:var(--text); }
+    .method-bar-wrap { height:10px; background:#f0f1f5; border-radius:6px; overflow:hidden; }
+    .method-bar { height:100%; background:linear-gradient(90deg, var(--primary), #8B6FFF); border-radius:6px; }
+    .method-amount { font-size:13px; font-weight:700; color:var(--text); white-space:nowrap; }
+    .method-amount span { font-size:10.5px; color:var(--text-3); font-weight:600; }
+    .method-count { grid-column: 2 / 4; font-size:11.5px; margin-top:-8px; }
+
+    .mini-stats { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .mini-stat { background:#fafafd; border:1px solid var(--border); border-radius:12px; padding:16px; }
+    .mini-value { font-size:22px; font-weight:700; color:var(--text); letter-spacing:-0.5px; }
+    .mini-label { font-size:12px; color:var(--text-3); margin-top:4px; }
+
+    .popular-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(118px, 1fr)); gap:18px; }
+    .popular-item { text-decoration:none; display:block; position:relative; }
+    .popular-item img, .popular-noimg {
+        width:100%; aspect-ratio:2/3; object-fit:cover; border-radius:9px; display:block;
+        box-shadow:0 5px 16px rgba(20,20,40,0.14);
+    }
+    .popular-noimg { background:#eef0f4; display:flex; align-items:center; justify-content:center; color:#c3c8d0; border:1px dashed #d8dce3; }
+    .popular-rank {
+        position:absolute; top:8px; left:8px; background:rgba(12,14,20,0.72); color:white;
+        font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px; backdrop-filter:blur(3px);
+    }
+    .popular-title { font-size:12.5px; font-weight:600; color:var(--text); margin-top:9px;
+                     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .popular-author { font-size:11.5px; color:var(--text-3); margin-top:2px;
+                      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .muted { color:var(--text-3); font-size:11.5px; margin-top:4px; }
+    .empty-state { text-align:center; color:var(--text-3); font-size:13.5px; }
+</style>
 {% endblock %}

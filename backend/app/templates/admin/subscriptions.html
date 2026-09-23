@@ -1,20 +1,40 @@
 {% extends "admin/base.html" %}
 {% block content %}
 <div class="header">
-    <h2>Subscription Plans</h2>
-    <button class="btn btn-primary" onclick="showModal('addPlanModal')">+ Add Plan</button>
+    <div>
+        <h2>Subscription Plans</h2>
+        <p style="color:#8a8f98;font-size:13px;margin-top:4px;">
+            Plans readers can subscribe to — these are what the mobile app's checkout offers.
+        </p>
+    </div>
+    <button class="btn btn-primary" onclick="showModal('addPlanModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add Plan
+    </button>
 </div>
-<div class="card" style="margin-bottom:24px;">
+
+<div class="card" style="padding:0;overflow:hidden;margin-bottom:28px;">
     <table>
-        <thead><tr><th>Name</th><th>Price</th><th>Interval</th><th>Active</th><th>Actions</th></tr></thead>
+        <thead>
+            <tr><th>Plan</th><th>Price</th><th>Billing</th><th>Status</th><th style="text-align:right;">Actions</th></tr>
+        </thead>
         <tbody>
             {% for plan in plans %}
             <tr>
-                <td>{{ plan.name }}</td>
-                <td>{{ plan.price | format_number }} FCFA</td>
-                <td>{{ plan.interval }}</td>
-                <td>{% if plan.is_active %}<span style="color:#059669;">{% include "admin/icons/check.svg" %}</span>{% else %}<span style="color:#d97706;">{% include "admin/icons/close.svg" %}</span>{% endif %}</td>
                 <td>
+                    <div class="plan-name">{{ plan.name }}</div>
+                    {% if plan.description %}<div class="muted">{{ plan.description }}</div>{% endif %}
+                </td>
+                <td><span class="price">{{ plan.price | format_number }} <span class="price-cur">XAF</span></span></td>
+                <td><span class="tag">{{ 'per year' if plan.interval == 'annual' else 'per month' }}</span></td>
+                <td>
+                    {% if plan.is_active %}
+                        <span class="badge badge-published">Active</span>
+                    {% else %}
+                        <span class="badge badge-archived">Inactive</span>
+                    {% endif %}
+                </td>
+                <td style="text-align:right;">
                     <form method="POST" action="/admin/subscriptions/plan/{{ plan.id }}/toggle" style="display:inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="btn btn-sm" style="background:{% if plan.is_active %}#fef3c7;color:#d97706{% else %}#d1fae5;color:#059669{% endif %}">
@@ -24,23 +44,41 @@
                 </td>
             </tr>
             {% endfor %}
+            {% if not plans %}
+            <tr><td colspan="5" class="empty-cell">
+                No plans yet. Add a monthly or annual plan so readers can subscribe.
+            </td></tr>
+            {% endif %}
         </tbody>
     </table>
 </div>
 
-<h3 style="margin-bottom:16px;">Active User Subscriptions</h3>
-<div class="card">
+<div class="section-head" style="margin-bottom:14px;">
+    <h3 style="font-size:15px;color:#1a1a2e;">Recent Subscriptions</h3>
+    <span class="muted">{{ user_subs | length }} shown</span>
+</div>
+<div class="card" style="padding:0;overflow:hidden;">
     <table>
-        <thead><tr><th>User ID</th><th>Plan</th><th>Status</th><th>Expires</th></tr></thead>
+        <thead>
+            <tr><th>User</th><th>Plan</th><th>Status</th><th>Started</th><th>Expires</th></tr>
+        </thead>
         <tbody>
             {% for sub in user_subs %}
             <tr>
-                <td style="font-family:monospace;font-size:12px;">{{ sub.user_id[:12] }}...</td>
-                <td>{{ sub.plan_id[:12] }}...</td>
-                <td><span class="badge badge-success">{{ sub.status }}</span></td>
-                <td>{{ sub.expires_at[:10] if sub.expires_at else "—" }}</td>
+                <td>{{ sub.email }}</td>
+                <td>{{ sub.plan_name }}</td>
+                <td>
+                    <span class="badge badge-{{ 'published' if sub.status == 'active' else 'archived' }}">
+                        {{ sub.status }}
+                    </span>
+                </td>
+                <td class="muted">{{ sub.started_at.strftime('%d %b %Y') if sub.started_at else '—' }}</td>
+                <td class="muted">{{ sub.expires_at.strftime('%d %b %Y') if sub.expires_at else '—' }}</td>
             </tr>
             {% endfor %}
+            {% if not user_subs %}
+            <tr><td colspan="5" class="empty-cell">No subscriptions sold yet.</td></tr>
+            {% endif %}
         </tbody>
     </table>
 </div>
@@ -50,22 +88,45 @@
         <h3>Add Subscription Plan</h3>
         <form method="POST" action="/admin/subscriptions/plan">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Plan Name</label><input type="text" name="name" required></div>
-            <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
-            <div class="form-group"><label>Price (FCFA)</label><input type="number" name="price" step="0.01" required></div>
-            <div class="form-group"><label>Interval</label>
-                <select name="interval"><option value="monthly">Monthly</option><option value="annual">Annual</option></select>
+            <div class="form-group"><label>Plan Name</label><input type="text" name="name" placeholder="e.g. Monthly" required autofocus></div>
+            <div class="form-group"><label>Description</label><textarea name="description" rows="2" placeholder="What the reader gets"></textarea></div>
+            <div class="form-group">
+                <label>Price</label>
+                <div class="price-input">
+                    <input type="number" name="price" step="1" min="0" placeholder="2000" required>
+                    <span class="price-suffix">XAF</span>
+                </div>
+            </div>
+            <div class="form-group"><label>Billing interval</label>
+                <select name="interval">
+                    <option value="monthly">Monthly</option>
+                    <option value="annual">Annual</option>
+                </select>
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="hideModal('addPlanModal')" style="background:#f0f0f0;">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create</button>
+                <button type="submit" class="btn btn-primary">Create plan</button>
             </div>
         </form>
     </div>
 </div>
+
+<style>
+    .plan-name { font-weight:600; color:#1a1a2e; font-size:14px; }
+    .muted { color:#8a8f98; font-size:12.5px; }
+    .tag { background:#f2f3f7; color:#5b6472; padding:3px 9px; border-radius:6px; font-size:11.5px; font-weight:600; }
+    .price { font-weight:700; color:#1a1a2e; font-size:14px; }
+    .price-cur { font-weight:600; color:#8a8f98; font-size:11px; }
+    .badge-published { background:#dcfce7; color:#166534; }
+    .badge-archived  { background:#f3f4f6; color:#6b7280; }
+    .empty-cell { text-align:center; color:#8a8f98; padding:40px 16px; font-size:13.5px; }
+    .price-input { position:relative; display:flex; align-items:center; }
+    .price-input input { padding-right:56px; }
+    .price-suffix { position:absolute; right:14px; font-size:12px; font-weight:700; color:#9aa0aa; letter-spacing:0.4px; }
+</style>
+
 <script>
 function showModal(id){document.getElementById(id).style.display='flex';}
 function hideModal(id){document.getElementById(id).style.display='none';}
 </script>
 {% endblock %}
-endblock %}
