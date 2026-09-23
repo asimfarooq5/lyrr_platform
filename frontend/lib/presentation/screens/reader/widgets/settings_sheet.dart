@@ -11,6 +11,7 @@ class SettingsSheet extends StatelessWidget {
   final String theme;
   final double playbackSpeed;
   final double voicePitch;
+  final double volume;
   final bool autoScroll;
   final Color highlightColor;
   final ReadingMode readingMode;
@@ -19,6 +20,7 @@ class SettingsSheet extends StatelessWidget {
   final Function(String) onThemeChanged;
   final Function(double) onPlaybackSpeedChanged;
   final Function(double) onVoicePitchChanged;
+  final Function(double) onVolumeChanged;
   final Function(bool) onAutoScrollChanged;
   final Function(Color) onHighlightColorChanged;
   final Function(ReadingMode) onReadingModeChanged;
@@ -30,6 +32,7 @@ class SettingsSheet extends StatelessWidget {
     required this.theme,
     required this.playbackSpeed,
     this.voicePitch = 1.0,
+    this.volume = 1.0,
     required this.autoScroll,
     required this.highlightColor,
     this.readingMode = ReadingMode.light,
@@ -38,6 +41,7 @@ class SettingsSheet extends StatelessWidget {
     required this.onThemeChanged,
     required this.onPlaybackSpeedChanged,
     required this.onVoicePitchChanged,
+    required this.onVolumeChanged,
     required this.onAutoScrollChanged,
     required this.onHighlightColorChanged,
     required this.onReadingModeChanged,
@@ -100,8 +104,10 @@ class SettingsSheet extends StatelessWidget {
                             onHighlightColorChanged: onHighlightColorChanged),
                         _AudioTab(playbackSpeed: playbackSpeed,
                             voicePitch: voicePitch,
+                            volume: volume,
                             onPlaybackSpeedChanged: onPlaybackSpeedChanged,
-                            onVoicePitchChanged: onVoicePitchChanged),
+                            onVoicePitchChanged: onVoicePitchChanged,
+                            onVolumeChanged: onVolumeChanged),
                       ],
                     ),
                   ),
@@ -462,21 +468,28 @@ class _HighlightOption extends StatelessWidget {
 class _AudioTab extends StatelessWidget {
   final double playbackSpeed;
   final double voicePitch;
+  final double volume;
   final Function(double) onPlaybackSpeedChanged;
   final Function(double) onVoicePitchChanged;
+  final Function(double) onVolumeChanged;
 
   const _AudioTab({
     required this.playbackSpeed,
     this.voicePitch = 1.0,
+    this.volume = 1.0,
     required this.onPlaybackSpeedChanged,
     required this.onVoicePitchChanged,
+    required this.onVolumeChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(top: 24),
-      child: Column(
+      // Scrollable because speed + tone + volume now exceed the sheet's
+      // fixed tab height on short screens.
+      child: SingleChildScrollView(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Playback Speed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
@@ -560,7 +573,40 @@ class _AudioTab extends StatelessWidget {
               Text('Higher', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
             ],
           ),
+
+          const SizedBox(height: 28),
+          Text('Volume', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 16),
+
+          // Volume slider (FRS §7). One control governs both the audiobook
+          // and on-device narration, so the reader never has to reason about
+          // which audio source is active.
+          Row(
+            children: [
+              Icon(
+                volume == 0 ? Icons.volume_off : Icons.volume_down,
+                size: 18,
+                color: Colors.grey[600],
+              ),
+              Expanded(
+                child: Slider(
+                  value: volume.clamp(0.0, 1.0),
+                  divisions: 20,
+                  activeColor: AppColors.primary,
+                  label: '${(volume * 100).round()}%',
+                  onChanged: onVolumeChanged,
+                ),
+              ),
+              Icon(Icons.volume_up, size: 18, color: Colors.grey[600]),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text('${(volume * 100).round()}%',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+          ),
         ],
+        ),
       ),
     );
   }

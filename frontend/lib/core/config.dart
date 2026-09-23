@@ -2,18 +2,27 @@
 /// 
 /// Central configuration for the entire application
 
+import 'package:flutter/foundation.dart';
+
 class AppConfig {
   // API Configuration
-  /// For Android emulator: http://10.0.2.2:8000/api/v1
-  /// For physical device on same WiFi: http://YOUR_LAN_IP:8000/api/v1
-  /// Pass at build time: --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
-  static const String _defaultApiBaseUrl = String.fromEnvironment(
-    'DEFAULT_API_BASE_URL',
-    defaultValue: 'https://api.lyrr.app/api/v1',
+  /// Debug/profile builds default to [_devApiBaseUrl], release builds to
+  /// [_prodApiBaseUrl]. Override either at build time:
+  ///
+  ///   flutter run --dart-define=API_BASE_URL=http://192.168.0.228:8000/api/v1
+  ///
+  /// Physical device on the same WiFi: use this machine's LAN IP.
+  /// USB device: run `adb reverse tcp:8000 tcp:8000` and use
+  /// http://127.0.0.1:8000/api/v1.
+  /// Android emulator: http://10.0.2.2:8000/api/v1
+  static const String _prodApiBaseUrl = 'https://api.lyrr.app/api/v1';
+  static const String _devApiBaseUrl = String.fromEnvironment(
+    'DEV_API_BASE_URL',
+    defaultValue: 'http://192.168.0.228:8000/api/v1',
   );
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: _defaultApiBaseUrl,
+    defaultValue: kReleaseMode ? _prodApiBaseUrl : _devApiBaseUrl,
   );
   
   static const String apiVersion = 'v1';
@@ -64,7 +73,6 @@ class AppConfig {
   
   // OAuth Configuration
   static const String googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
-  static const String appleClientId = String.fromEnvironment('APPLE_CLIENT_ID');
   
   // Supported Languages
   static const List<String> supportedLanguages = [

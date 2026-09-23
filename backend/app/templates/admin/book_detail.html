@@ -1,138 +1,249 @@
 {% extends "admin/base.html" %}
 {% block content %}
 <div class="header">
-    <h2>Edit: {{ book.title }}
-        <span class="badge" style="text-transform:uppercase;font-size:11px;
-            background:{{ '#dcfce7' if book.status.value == 'published' else ('#fef3c7' if book.status.value == 'draft' else '#f3f4f6') }};
-            color:{{ '#166534' if book.status.value == 'published' else ('#92400e' if book.status.value == 'draft' else '#6b7280') }};">
-            {{ book.status.value }}
-        </span>
-    </h2>
-    <a href="/admin/books" class="btn" style="background:#f0f0f0;">← Back</a>
+    <div style="display:flex;align-items:center;gap:12px;">
+        <div>
+            <h2 style="margin-bottom:6px;">{{ book.title }}</h2>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span class="badge badge-{{ book.status.value }}">{{ book.status.value }}</span>
+                <span class="muted">{{ chapter_count }} chapter{{ '' if chapter_count == 1 else 's' }}
+                    {% if book.word_count %}· {{ '{:,}'.format(book.word_count) }} words{% endif %}</span>
+            </div>
+        </div>
+    </div>
+    <a href="/admin/books" class="btn" style="background:#f0f0f0;">← Back to Books</a>
 </div>
 
-<div style="display:flex;gap:24px;flex-wrap:wrap;">
-    <div class="card" style="flex:1;min-width:300px;">
-        <h3 style="margin-bottom:16px;">Book Details</h3>
+{% if request.query_params.get('uploaded') == 'epub' %}
+<div class="success-msg">EPUB imported — chapters and content are live.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'epub_import_failed' %}
+<div class="error-msg">EPUB import failed. The file may be corrupt or in an unsupported format — nothing was changed.</div>
+{% endif %}
+
+<div class="detail-grid">
+
+    <!-- ===== Left column: cover + content + audio ===== -->
+    <div class="detail-main">
+
+        <!-- Cover -->
+        <div class="card">
+            <div class="section-head">
+                <h3>Cover Image</h3>
+                <span class="muted">Recommended 1600×2400 (2:3)</span>
+            </div>
+            <div class="cover-row">
+                <div class="cover-preview">
+                    {% if book.cover_url %}
+                        <img src="{{ cover_url(book.cover_url, book.updated_at) }}" alt="{{ book.title }} cover">
+                    {% else %}
+                        <div class="cover-preview-empty">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#b9bec7" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4 3-3 6 6"/></svg>
+                            <span>No cover yet</span>
+                        </div>
+                    {% endif %}
+                </div>
+                <form method="POST" action="/admin/books/{{ book.id }}/cover" enctype="multipart/form-data" class="upload-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="file-drop">
+                        <input type="file" name="file" accept="image/*" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose image…'">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+                        <span class="file-name">Choose image…</span>
+                    </label>
+                    <button type="submit" class="btn btn-primary">{{ 'Replace cover' if book.cover_url else 'Upload cover' }}</button>
+                    <p class="form-hint">JPG, PNG or WebP · up to {{ (settings.MAX_COVER_SIZE_MB) }} MB</p>
+                </form>
+            </div>
+        </div>
+
+        <!-- Content / EPUB -->
+        <div class="card">
+            <div class="section-head">
+                <h3>Book Content</h3>
+                {% if chapter_count %}
+                    <span class="badge badge-published">{{ chapter_count }} chapters loaded</span>
+                {% else %}
+                    <span class="badge badge-draft">No content yet</span>
+                {% endif %}
+            </div>
+            <p class="section-desc">
+                Upload an EPUB to extract the text, chapters and cover automatically.
+                The app reads this text aloud on-device (text-to-speech) — audio is optional.
+            </p>
+            <form method="POST" action="/admin/books/{{ book.id }}/upload-epub" enctype="multipart/form-data" class="upload-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="file-drop">
+                    <input type="file" name="file" accept=".epub" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose EPUB…'">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+                    <span class="file-name">Choose EPUB…</span>
+                </label>
+                <button type="submit" class="btn btn-primary">{{ 'Re-import EPUB' if chapter_count else 'Upload & parse' }}</button>
+                <p class="form-hint">Re-importing replaces the existing chapters and sets the book to Published.</p>
+            </form>
+        </div>
+
+        <!-- Audio -->
+        <div class="card">
+            <div class="section-head">
+                <h3>Audio (optional)</h3>
+                <span class="muted">Skip it and the app narrates with on-device TTS</span>
+            </div>
+            <p class="section-desc">
+                Upload narration to enable the real audiobook with word-level highlighting.
+                If no audio is uploaded, readers still get full narration from their phone's built-in voice.
+            </p>
+            <form method="POST" action="/admin/books/{{ book.id }}/audio" enctype="multipart/form-data" class="upload-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="file-drop">
+                    <input type="file" name="file" accept="audio/*" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose audio…'">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+                    <span class="file-name">Choose audio…</span>
+                </label>
+                <button type="submit" class="btn btn-primary">Upload audio</button>
+                <p class="form-hint">MP3, M4A, WAV or FLAC · up to {{ settings.MAX_UPLOAD_SIZE_MB }} MB</p>
+            </form>
+
+            {% if book.media %}
+            <div style="margin-top:20px;">
+                <div class="section-head"><h4>Uploaded Audio ({{ book.media | length }})</h4></div>
+                {% for m in book.media %}
+                <div class="audio-card">
+                    <div class="audio-card-header">
+                        <div class="audio-format-icon" data-format="{{ m.format }}">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.2"/><polygon points="10,7 17,12 10,17" transform="translate(1,0)"/></svg>
+                        </div>
+                        <div class="audio-meta">
+                            <div class="audio-title">
+                                {% if m.is_ai_narrated %}AI Narration{% else %}Audio Track{% endif %}
+                                {% if book.media | length > 1 %}— Part {{ loop.index }}{% endif %}
+                            </div>
+                            <div class="audio-subtitle">
+                                {{ (m.size_bytes / 1000000) | round(1) }} MB
+                                {% if m.duration %}· {{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}{% endif %}
+                            </div>
+                        </div>
+                        <div class="audio-badges">
+                            <span class="badge badge-format">{{ m.format | upper }}</span>
+                            <span class="badge badge-quality-{{ m.quality or 'high' }}">{{ m.quality or 'High' }}</span>
+                            {% if m.is_ai_narrated %}<span class="badge badge-ai">AI</span>{% endif %}
+                        </div>
+                    </div>
+                    <div class="audio-player-row">
+                        <button class="play-btn" onclick="toggleAudio(this, '{{ m.audio_url }}')" aria-label="Play">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
+                        </button>
+                        <div class="seek-bar-container" onclick="clickSeek(event, this, '{{ m.audio_url }}')">
+                            <div class="seek-bar-fill" style="width:0%"></div>
+                            <div class="seek-bar-thumb" style="left:0%"></div>
+                        </div>
+                        <span class="time-display">0:00</span>
+                        <span class="time-total">{% if m.duration %}{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}{% else %}--:--{% endif %}</span>
+                        <form method="POST" action="/admin/books/{{ book.id }}/audio/{{ m.id }}/delete" style="margin-left:auto;" onsubmit="return confirm('Delete this audio?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ===== Right column: details + publishing ===== -->
+    <div class="detail-side">
         <form method="POST" action="/admin/books/{{ book.id }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Title</label><input type="text" name="title" value="{{ book.title }}" required></div>
-            <div class="form-group"><label>Author</label><input type="text" name="author" value="{{ book.author }}"></div>
-            <div class="form-group"><label>Type</label>
-                <select name="book_type">
-                    <option value="fiction" {% if book.book_type == 'fiction' %}selected{% endif %}>Fiction</option>
-                    <option value="non_fiction" {% if book.book_type == 'non_fiction' %}selected{% endif %}>Non-Fiction</option>
-                    <option value="scholar" {% if book.book_type == 'scholar' %}selected{% endif %}>Scholar</option>
-                    <option value="children" {% if book.book_type == 'children' %}selected{% endif %}>Children</option>
-                    <option value="reference" {% if book.book_type == 'reference' %}selected{% endif %}>Reference</option>
-                </select>
-            </div>
-            <div class="form-group"><label>Description</label><textarea name="description" rows="4">{{ book.description or '' }}</textarea></div>
 
-            <hr style="margin:16px 0;">
-            <h4 style="margin-bottom:12px;font-size:13px;color:#666;text-transform:uppercase;letter-spacing:0.5px;">Pricing &amp; Publishing</h4>
-
-            <div class="form-group"><label>Price (leave blank for free)</label>
-                <input type="number" step="0.01" min="0" name="price" value="{{ book.price if book.price is not none else '' }}" placeholder="e.g. 500.00">
-            </div>
-            <div class="form-group"><label>Category</label>
-                <select name="category_id">
-                    <option value="">— No category —</option>
-                    {% for c in categories %}
-                    <option value="{{ c.id }}" {% if c.id == current_category_id %}selected{% endif %}>{{ c.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group"><label>Publishing Status</label>
-                <select name="status">
-                    <option value="draft" {% if book.status.value == 'draft' %}selected{% endif %}>Draft (not visible in Store)</option>
-                    <option value="published" {% if book.status.value == 'published' %}selected{% endif %}>Published (live in Store)</option>
-                    <option value="archived" {% if book.status.value == 'archived' %}selected{% endif %}>Archived (hidden)</option>
-                </select>
+            <div class="card">
+                <div class="section-head"><h3>Book Details</h3></div>
+                <div class="form-group"><label>Title</label><input type="text" name="title" value="{{ book.title }}" required></div>
+                <div class="form-group"><label>Author</label><input type="text" name="author" value="{{ book.author }}"></div>
+                <div class="form-group"><label>Type</label>
+                    <select name="book_type">
+                        <option value="fiction" {% if book.book_type == 'fiction' %}selected{% endif %}>Fiction</option>
+                        <option value="non_fiction" {% if book.book_type == 'non_fiction' %}selected{% endif %}>Non-Fiction</option>
+                        <option value="scholar" {% if book.book_type == 'scholar' %}selected{% endif %}>Scholar</option>
+                        <option value="children" {% if book.book_type == 'children' %}selected{% endif %}>Children</option>
+                        <option value="reference" {% if book.book_type == 'reference' %}selected{% endif %}>Reference</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Description</label><textarea name="description" rows="5">{{ book.description or '' }}</textarea></div>
             </div>
 
-            <button type="submit" class="btn btn-primary">Save Changes</button>
-        </form>
-
-        <hr style="margin:24px 0;">
-
-        <h3 style="margin-bottom:16px;">Upload EPUB</h3>
-        <p style="font-size:13px;color:#666;margin-bottom:12px;">Upload an EPUB file to automatically extract chapters, content, and cover image.</p>
-        <form method="POST" action="/admin/books/{{ book.id }}/upload-epub" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>EPUB File</label><input type="file" name="file" accept=".epub" required></div>
-            <button type="submit" class="btn btn-primary">Upload & Parse</button>
-        </form>
-    </div>
-
-    <div class="card" style="flex:1;min-width:300px;">
-        <h3 style="margin-bottom:16px;">Cover Image</h3>
-        {% if book.cover_url %}
-        <div style="margin-bottom:12px;">
-            <img src="{{ book.cover_url }}" alt="Cover" style="max-height:200px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
-        </div>
-        {% endif %}
-        <form method="POST" action="/admin/books/{{ book.id }}/cover" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Upload Cover</label><input type="file" name="file" accept="image/*" required></div>
-            <button type="submit" class="btn btn-primary">Upload</button>
-        </form>
-    </div>
-
-    <div class="card" style="flex:1;min-width:300px;">
-        <h3 style="margin-bottom:16px;">Audio Files</h3>
-        <form method="POST" action="/admin/books/{{ book.id }}/audio" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="form-group"><label>Upload Audio</label><input type="file" name="file" accept="audio/*" required></div>
-            <button type="submit" class="btn btn-primary">Upload</button>
-        </form>
-        {% if book.media %}
-        <div style="margin-top:16px;">
-            <h4 style="margin-bottom:12px;font-size:13px;color:#666;text-transform:uppercase;letter-spacing:0.5px;">Uploaded Audio ({{ book.media|length }})</h4>
-            {% for m in book.media %}
-            <div class="audio-card">
-                <div class="audio-card-header">
-                    <div class="audio-format-icon" data-format="{{ m.format }}">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.2"/><polygon points="10,7 17,12 10,17" transform="translate(1,0)"/></svg>
-                    </div>
-                    <div class="audio-meta">
-                        <div class="audio-title">
-                            {% if m.is_ai_narrated %}AI Narration{% else %}Audio Track{% endif %}
-                            {% if loop.length > 1 %}— Part {{ loop.index }}{% endif %}
-                        </div>
-                        <div class="audio-subtitle">
-                            {{ (m.size_bytes / 1000000) | round(1) }} MB
-                            {% if m.duration %}· {{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}{% endif %}
-                            {% if m.created_at %}· {{ m.created_at.strftime('%b %d, %Y') if m.created_at is not string else m.created_at[:10] }}{% endif %}
-                        </div>
-                    </div>
-                    <div class="audio-badges">
-                        <span class="badge badge-format">{{ m.format | upper }}</span>
-                        <span class="badge badge-quality-{{ m.quality or 'high' }}">{{ m.quality or 'High' }}</span>
-                        {% if m.is_ai_narrated %}<span class="badge badge-ai">AI</span>{% endif %}
-                        {% if m.is_encrypted %}<span class="badge badge-encrypted">{% include "admin/icons/lock.svg" %} Encrypted</span>{% endif %}
+            <div class="card">
+                <div class="section-head"><h3>Pricing &amp; Publishing</h3></div>
+                <div class="form-group">
+                    <label>Price <span class="muted">(leave blank for free)</span></label>
+                    <div class="price-input">
+                        <input type="number" step="0.01" min="0" name="price"
+                               value="{{ book.price if book.price is not none else '' }}" placeholder="0">
+                        <span class="price-suffix">XAF</span>
                     </div>
                 </div>
-
-                <div class="audio-player-row">
-                    <button class="play-btn" onclick="toggleAudio(this, '{{ m.audio_url }}')" aria-label="Play">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
-                    </button>
-                    <div class="seek-bar-container" onclick="clickSeek(event, this, '{{ m.audio_url }}')">
-                        <div class="seek-bar-fill" style="width:0%"></div>
-                        <div class="seek-bar-thumb" style="left:0%"></div>
-                    </div>
-                    <span class="time-display">0:00</span>
-                    <span class="time-total">{% if m.duration %}{{ (m.duration // 60) }}:{{ '%02d' % (m.duration % 60) }}{% else %}--:--{% endif %}</span>
-                    <form method="POST" action="/admin/books/{{ book.id }}/audio/{{ m.id }}/delete" style="margin-left:auto;" onsubmit="return confirm('Delete this audio?')">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button class="btn btn-danger btn-sm">{% include "admin/icons/trash.svg" %} Delete</button>
-                    </form>
+                <div class="form-group"><label>Category</label>
+                    <select name="category_id">
+                        <option value="">— No category —</option>
+                        {% for c in categories %}
+                        <option value="{{ c.id }}" {% if c.id == current_category_id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
+                <div class="form-group"><label>Publishing Status</label>
+                    <select name="status">
+                        <option value="draft" {% if book.status.value == 'draft' %}selected{% endif %}>Draft — not visible in the Store</option>
+                        <option value="published" {% if book.status.value == 'published' %}selected{% endif %}>Published — live in the Store</option>
+                        <option value="archived" {% if book.status.value == 'archived' %}selected{% endif %}>Archived — hidden</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Save changes</button>
             </div>
-            {% endfor %}
-        </div>
-        {% endif %}
+        </form>
     </div>
 </div>
+
+<style>
+    .detail-grid { display:grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap:24px; align-items:start; }
+    @media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
+    .detail-main { display:flex; flex-direction:column; gap:24px; min-width:0; }
+    .detail-side { display:flex; flex-direction:column; gap:24px; min-width:0; }
+    .detail-side .card, .detail-main .card { margin:0; }
+
+    .section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .section-head h3 { font-size:15px; color:#1a1a2e; }
+    .section-head h4 { font-size:13px; color:#5b6472; text-transform:uppercase; letter-spacing:0.5px; }
+    .section-desc { font-size:13px; color:#7c828c; line-height:1.55; margin:-4px 0 16px; }
+    .muted { color:#8a8f98; font-size:12.5px; }
+
+    .badge-published { background:#dcfce7; color:#166534; }
+    .badge-draft     { background:#fef3c7; color:#92400e; }
+    .badge-archived  { background:#f3f4f6; color:#6b7280; }
+
+    /* Cover */
+    .cover-row { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+    .cover-preview { width:150px; height:225px; border-radius:10px; overflow:hidden; flex-shrink:0;
+                     box-shadow:0 8px 24px rgba(20,20,40,0.18); background:#eef0f4; }
+    .cover-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+    .cover-preview-empty { width:100%; height:100%; display:flex; flex-direction:column; gap:8px;
+                           align-items:center; justify-content:center; color:#9aa0aa; font-size:11.5px;
+                           border:1px dashed #d8dce3; border-radius:10px; }
+    .upload-form { flex:1; min-width:220px; display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+
+    /* File drop */
+    .file-drop { display:flex; align-items:center; gap:10px; width:100%; cursor:pointer;
+                 border:1.5px dashed #d8dce3; border-radius:12px; padding:14px 16px;
+                 background:#fbfbfd; transition:border-color .15s, background .15s; }
+    .file-drop:hover { border-color:#6B4EFF; background:#f7f5ff; }
+    .file-drop input[type=file] { display:none; }
+    .file-drop .file-name { font-size:13px; color:#5b6472; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    .form-hint { font-size:12px; color:#9aa0aa; margin:0; }
+
+    /* Price input with suffix */
+    .price-input { position:relative; display:flex; align-items:center; }
+    .price-input input { padding-right:56px; }
+    .price-suffix { position:absolute; right:14px; font-size:12px; font-weight:700; color:#9aa0aa; letter-spacing:0.4px; }
+
+    .error-msg { background:#fee2e2; color:#b91c1c; padding:12px 16px; border-radius:12px; margin-bottom:20px; font-size:14px; }
+</style>
 {% endblock %}

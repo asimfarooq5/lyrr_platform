@@ -2,9 +2,10 @@
 User data endpoints - library, bookmarks, notes, progress, streaks
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, func as sa_func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 
@@ -88,6 +89,8 @@ async def get_library(
 @router.get("/bookmarks", response_model=List[BookmarkResponse])
 async def get_bookmarks(
     book_id: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -97,7 +100,7 @@ async def get_bookmarks(
     if book_id:
         query = query.where(Bookmark.book_id == book_id)
     
-    query = query.order_by(desc(Bookmark.created_at))
+    query = query.order_by(desc(Bookmark.created_at)).offset(skip).limit(limit)
     
     result = await db.execute(query)
     return result.scalars().all()
@@ -199,6 +202,8 @@ async def delete_bookmark(
 @router.get("/notes", response_model=List[NoteResponse])
 async def get_notes(
     book_id: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -208,7 +213,7 @@ async def get_notes(
     if book_id:
         query = query.where(Note.book_id == book_id)
     
-    query = query.order_by(desc(Note.created_at))
+    query = query.order_by(desc(Note.created_at)).offset(skip).limit(limit)
     
     result = await db.execute(query)
     return result.scalars().all()
@@ -290,6 +295,8 @@ async def delete_note(
 # Reading Progress
 @router.get("/progress", response_model=List[ReadingProgressResponse])
 async def get_progress(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -298,6 +305,8 @@ async def get_progress(
         select(ReadingProgress)
         .where(ReadingProgress.user_id == current_user.id)
         .order_by(desc(ReadingProgress.last_read_at))
+        .offset(skip)
+        .limit(limit)
     )
     return result.scalars().all()
 
@@ -325,99 +334,101 @@ async def get_book_progress(
     return progress
 
 
+async def _touch_reading_session(
+    db: AsyncSession, user_id: str, book_id: Optional[str], seconds: int = 10
+) -> None:
+    """Add `seconds` to today's reading session for the user (upsert-safe)."""
+    today = date.today()
+    session = (await db.execute(
+        select(ReadingSession).where(
+            and_(
+                ReadingSession.user_id == user_id,
+                ReadingSession.date == today,
+            )
+        )
+    )).scalar_one_or_none()
+    if session:
+        session.duration_seconds += seconds
+    else:
+        db.add(ReadingSession(
+            user_id=user_id,
+            book_id=book_id,
+            date=today,
+            duration_seconds=seconds,
+        ))
+
+
 @router.post("/progress", response_model=ReadingProgressResponse)
 async def update_progress(
     progress: ReadingProgressCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Update reading progress and track daily reading session"""
-    # Check if progress exists
-    result = await db.execute(
+    """Update reading progress and track the daily reading session.
+
+    Race-safe: (user_id, book_id) is unique, so a concurrent insert is caught
+    and retried as an update instead of raising.
+    """
+    def _apply(target: ReadingProgress) -> None:
+        target.chapter_id = progress.chapter_id
+        target.word_id = progress.word_id
+        target.position_seconds = progress.position_seconds
+        target.progress_percent = progress.progress_percent
+        target.last_read_at = datetime.utcnow()
+        target.last_synced_at = datetime.utcnow()
+
+    existing = (await db.execute(
         select(ReadingProgress).where(
             and_(
                 ReadingProgress.user_id == current_user.id,
-                ReadingProgress.book_id == progress.book_id
+                ReadingProgress.book_id == progress.book_id,
             )
         )
-    )
-    existing = result.scalar_one_or_none()
-    
+    )).scalar_one_or_none()
+
     if existing:
-        # Update existing
-        existing.chapter_id = progress.chapter_id
-        existing.word_id = progress.word_id
-        existing.position_seconds = progress.position_seconds
-        existing.progress_percent = progress.progress_percent
-        existing.last_read_at = datetime.utcnow()
-        existing.total_reading_time_seconds += 10  # Called every 10s
+        _apply(existing)
+        existing.total_reading_time_seconds += 10  # called every ~10s
         existing.sessions_count += 1
-        existing.last_synced_at = datetime.utcnow()
-        
-        # Update daily reading session
-        today = date.today()
-        session_result = await db.execute(
-            select(ReadingSession).where(
-                and_(
-                    ReadingSession.user_id == current_user.id,
-                    ReadingSession.date == today
-                )
-            )
-        )
-        session = session_result.scalar_one_or_none()
-        if session:
-            session.duration_seconds += 10
-        else:
-            session = ReadingSession(
-                user_id=current_user.id,
-                book_id=progress.book_id,
-                date=today,
-                duration_seconds=10,
-            )
-            db.add(session)
-        
+        await _touch_reading_session(db, current_user.id, progress.book_id)
         await db.commit()
         await db.refresh(existing)
         return existing
-    else:
-        # Create new progress entry
-        new_progress = ReadingProgress(
-            user_id=current_user.id,
-            book_id=progress.book_id,
-            chapter_id=progress.chapter_id,
-            word_id=progress.word_id,
-            position_seconds=progress.position_seconds,
-            progress_percent=progress.progress_percent,
-            device_id=progress.device_id,
-            last_synced_at=datetime.utcnow()
-        )
-        
-        # Track initial reading session (upsert: one session per user per day)
-        today = date.today()
-        session_result = await db.execute(
-            select(ReadingSession).where(
+
+    new_progress = ReadingProgress(
+        user_id=current_user.id,
+        book_id=progress.book_id,
+        chapter_id=progress.chapter_id,
+        word_id=progress.word_id,
+        position_seconds=progress.position_seconds,
+        progress_percent=progress.progress_percent,
+        device_id=progress.device_id,
+        last_synced_at=datetime.utcnow(),
+    )
+    db.add(new_progress)
+    await _touch_reading_session(db, current_user.id, progress.book_id)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Another request inserted this (user, book) between our SELECT and
+        # INSERT — fall back to updating the row that won the race.
+        await db.rollback()
+        existing = (await db.execute(
+            select(ReadingProgress).where(
                 and_(
-                    ReadingSession.user_id == current_user.id,
-                    ReadingSession.date == today
+                    ReadingProgress.user_id == current_user.id,
+                    ReadingProgress.book_id == progress.book_id,
                 )
             )
-        )
-        session = session_result.scalar_one_or_none()
-        if session:
-            session.duration_seconds += 10
-        else:
-            session = ReadingSession(
-                user_id=current_user.id,
-                book_id=progress.book_id,
-                date=today,
-                duration_seconds=10,
-            )
-            db.add(session)
-        
-        db.add(new_progress)
+        )).scalar_one()
+        _apply(existing)
         await db.commit()
-        await db.refresh(new_progress)
-        return new_progress
+        await db.refresh(existing)
+        return existing
+
+    await db.refresh(new_progress)
+    return new_progress
 
 
 @router.get("/stats", response_model=ReadingStats)

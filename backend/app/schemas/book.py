@@ -54,12 +54,6 @@ class ChapterSchema(BaseModel):
 
 class BookMediaSchema(BaseModel):
     id: str
-    start: float
-    end: float
-
-
-class BookMediaSchema(BaseModel):
-    id: str
     format: str
     quality: str
     duration: Optional[int] = None
@@ -86,6 +80,33 @@ class BookUpdate(BaseModel):
     author: Optional[str] = None
     description: Optional[str] = None
     status: Optional[BookStatus] = None
+
+
+class AdminBookUpdate(BaseModel):
+    """Explicit allow-list for admin book edits.
+
+    Replaces the previous unvalidated ``setattr`` loop which allowed a client to
+    overwrite any model column (mass assignment). Only the fields below are
+    editable; anything else in the request is rejected by Pydantic.
+    """
+
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    subtitle: Optional[str] = Field(None, max_length=255)
+    author: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    cover_url: Optional[str] = Field(None, max_length=500)
+    book_type: Optional[str] = Field(None, max_length=50)
+    language: Optional[Language] = None
+    status: Optional[BookStatus] = None
+    price: Optional[float] = Field(None, ge=0)
+    isbn: Optional[str] = Field(None, max_length=20)
+    duration: Optional[int] = Field(None, ge=0)
+    word_count: Optional[int] = Field(None, ge=0)
+    is_featured: Optional[bool] = None
+    publisher: Optional[str] = Field(None, max_length=255)
+    published_at: Optional[datetime] = None
+
+    model_config = {"extra": "forbid"}
 
 
 class BookResponse(BookBase):

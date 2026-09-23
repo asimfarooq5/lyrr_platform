@@ -50,6 +50,6 @@ openpyxl==3.1.2
 beautifulsoup4==4.12.3
 lxml==5.1.0
 
-# Image generation for seed_data.py placeholder covers (runs inside the
-# deployed container via `python seed_data.py`)
-Pillow==10.2.0
+# Image generation for seed_data.py placeholder covers.
+# Pillow 12.x ships wheels for Python 3.12–3.14; 10.x fails to build on 3.14.
+Pillow>=10.2,<13

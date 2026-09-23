@@ -19,6 +19,7 @@ from typing import Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.security import generate_drm_key
@@ -156,204 +157,156 @@ class CardGateway(PaymentGateway):
         }
 
 
-class OrangeMoneyGateway(PaymentGateway):
-    """Orange Money Web Payment API (api.orange.com)."""
+class CampayGateway(PaymentGateway):
+    """Mobile Money collection via CamPay (MTN + Orange, Cameroon).
 
-    method = METHOD_ORANGE_MONEY
+    CamPay is the aggregator used for both carriers: the phone number
+    determines the operator, so MTN and Orange share this one integration.
+    Docs: https://demo.campay.net/en/developer/
 
-    async def _get_access_token(self, client) -> str:
-        import base64
-        creds = base64.b64encode(
-            f"{settings.ORANGE_MONEY_CLIENT_ID}:{settings.ORANGE_MONEY_CLIENT_SECRET}".encode()
-        ).decode()
+    Flow:
+      1. POST /token/            -> short-lived bearer token
+      2. POST /collect/          -> prompts the payer on their handset; returns
+                                    a ``reference`` (UUID4)
+      3. GET  /transaction/{ref}/ -> PENDING | SUCCESSFUL | FAILED
+      4. Webhook (configured in the CamPay app) notifies on settle.
+    """
+
+    # CamPay expects the MSISDN with country code and no "+", e.g. 2376XXXXXXXX.
+    _COUNTRY_CODE = "237"
+
+    def _normalise_phone(self, raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        digits = "".join(ch for ch in str(raw) if ch.isdigit())
+        if not digits:
+            return None
+        if digits.startswith(self._COUNTRY_CODE):
+            return digits
+        if digits.startswith("0"):
+            digits = digits[1:]
+        return f"{self._COUNTRY_CODE}{digits}"
+
+    async def _get_token(self, client) -> str:
+        """Return a bearer token: the permanent app token if set, else one
+        minted from the app username/password."""
+        if settings.CAMPAY_PERMANENT_TOKEN:
+            return settings.CAMPAY_PERMANENT_TOKEN
+        if not (settings.CAMPAY_USERNAME and settings.CAMPAY_PASSWORD):
+            raise PaymentError(
+                "CamPay requires CAMPAY_PERMANENT_TOKEN or "
+                "CAMPAY_USERNAME + CAMPAY_PASSWORD."
+            )
         resp = await client.post(
-            f"{settings.ORANGE_MONEY_API_BASE}/oauth/v3/token",
-            headers={"Authorization": f"Basic {creds}",
-                     "Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "client_credentials"},
+            f"{settings.CAMPAY_BASE_URL}/token/",
+            json={
+                "username": settings.CAMPAY_USERNAME,
+                "password": settings.CAMPAY_PASSWORD,
+            },
         )
         resp.raise_for_status()
-        return resp.json()["access_token"]
+        return resp.json()["token"]
 
     async def create_charge(self, amount, currency, reference, description,
                             customer, meta=None):
-        msisdn = (customer or {}).get("phone") or (meta or {}).get("phone")
+        phone = self._normalise_phone(
+            (customer or {}).get("phone") or (meta or {}).get("phone")
+        )
         if self.is_sandbox:
-            logger.info("Sandbox orange_money charge %s for amount %.2f %s",
-                        reference, amount, currency)
+            logger.info("Sandbox %s charge %s for amount %.2f %s (phone=%s)",
+                        self.method, reference, amount, currency, phone)
             return {
-                "status": STATUS_AWAITING if msisdn else STATUS_PENDING,
-                "gateway_reference": f"orange_money_{reference}",
-                "message": "Confirm the payment on your Orange Money wallet" if msisdn
-                else "Mobile money charge pending",
+                "status": STATUS_AWAITING if phone else STATUS_PENDING,
+                "gateway_reference": f"{self.method}_{reference}",
+                "message": "Confirm the payment on your mobile money wallet"
+                           if phone else "A phone number is required",
             }
-        if not (settings.ORANGE_MONEY_CLIENT_ID and settings.ORANGE_MONEY_CLIENT_SECRET
-                and settings.ORANGE_MONEY_MERCHANT_KEY):
-            raise PaymentError(
-                "Live Orange Money requires ORANGE_MONEY_CLIENT_ID/CLIENT_SECRET/MERCHANT_KEY."
-            )
+
+        if not phone:
+            raise PaymentError("A phone number is required for mobile money.")
 
         import httpx
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                token = await self._get_access_token(client)
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                token = await self._get_token(client)
                 resp = await client.post(
-                    f"{settings.ORANGE_MONEY_API_BASE}/orange-money-webpay/v1/webpayment",
-                    headers={"Authorization": f"Bearer {token}",
-                             "Content-Type": "application/json", "Accept": "application/json"},
+                    f"{settings.CAMPAY_BASE_URL}/collect/",
+                    headers={
+                        "Authorization": f"Token {token}",
+                        "Content-Type": "application/json",
+                    },
                     json={
-                        "merchant_key": settings.ORANGE_MONEY_MERCHANT_KEY,
+                        # CamPay rejects decimals — send an integer string.
+                        "amount": str(int(round(amount))),
                         "currency": currency,
-                        "order_id": reference,
-                        "amount": amount,
-                        "return_url": f"{settings.FRONTEND_URL}/payments/return",
-                        "cancel_url": f"{settings.FRONTEND_URL}/payments/cancel",
-                        "notif_url": f"{settings.PUBLIC_API_URL}/api/v1/payments/webhook/orange_money",
-                        "lang": "en",
-                        "reference": reference,
+                        "from": phone,
+                        "description": description or "LYRR purchase",
+                        # Idempotency key: re-using it returns the first result.
+                        "external_reference": reference,
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPError as exc:
-            raise PaymentError(f"Orange Money charge failed: {exc}") from exc
+            raise PaymentError(f"CamPay charge failed: {exc}") from exc
+
+        gateway_reference = data.get("reference")
+        if not gateway_reference:
+            raise PaymentError("CamPay did not return a transaction reference.")
 
         return {
             "status": STATUS_AWAITING,
-            "gateway_reference": data.get("pay_token"),
-            "payment_url": data.get("payment_url"),
-            "message": "Complete the payment at the returned payment_url",
-        }
-
-    async def verify_charge(self, reference):
-        if self.is_sandbox:
-            return {"status": STATUS_COMPLETED, "gateway_reference": f"orange_money_{reference}"}
-        if not (settings.ORANGE_MONEY_CLIENT_ID and settings.ORANGE_MONEY_CLIENT_SECRET):
-            raise PaymentError("Live Orange Money is not configured.")
-
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                token = await self._get_access_token(client)
-                resp = await client.get(
-                    f"{settings.ORANGE_MONEY_API_BASE}/orange-money-webpay/v1/transactionstatus",
-                    headers={"Authorization": f"Bearer {token}"},
-                    params={"order_id": reference, "amount": None, "pay_token": reference},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPError as exc:
-            raise PaymentError(f"Orange Money verification failed: {exc}") from exc
-
-        status_map = {"SUCCESS": STATUS_COMPLETED, "FAILED": STATUS_FAILED,
-                      "EXPIRED": STATUS_EXPIRED, "PENDING": STATUS_AWAITING}
-        return {
-            "status": status_map.get(data.get("status"), STATUS_PENDING),
-            "gateway_reference": reference,
-        }
-
-
-class MTNMoMoGateway(PaymentGateway):
-    """MTN Mobile Money Collection API (momodeveloper.mtn.com)."""
-
-    method = METHOD_MTN_MOMO
-
-    async def _get_access_token(self, client) -> str:
-        import base64
-        creds = base64.b64encode(
-            f"{settings.MTN_MOMO_API_USER}:{settings.MTN_MOMO_API_KEY}".encode()
-        ).decode()
-        resp = await client.post(
-            f"{settings.MTN_MOMO_API_BASE}/collection/token/",
-            headers={"Authorization": f"Basic {creds}",
-                     "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY},
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
-
-    async def create_charge(self, amount, currency, reference, description,
-                            customer, meta=None):
-        msisdn = (customer or {}).get("phone") or (meta or {}).get("phone")
-        if self.is_sandbox:
-            logger.info("Sandbox mtn_momo charge %s for amount %.2f %s",
-                        reference, amount, currency)
-            return {
-                "status": STATUS_AWAITING if msisdn else STATUS_PENDING,
-                "gateway_reference": f"mtn_momo_{reference}",
-                "message": "Confirm the payment on your MTN MoMo wallet" if msisdn
-                else "Mobile money charge pending",
-            }
-        if not (settings.MTN_MOMO_SUBSCRIPTION_KEY and settings.MTN_MOMO_API_USER
-                and settings.MTN_MOMO_API_KEY):
-            raise PaymentError(
-                "Live MTN MoMo requires MTN_MOMO_SUBSCRIPTION_KEY/API_USER/API_KEY."
-            )
-        if not msisdn:
-            raise PaymentError("A phone number is required for MTN Mobile Money.")
-
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                token = await self._get_access_token(client)
-                headers = {
-                    "Authorization": f"Bearer {token}",
-                    "X-Reference-Id": reference,
-                    "X-Target-Environment": settings.MTN_MOMO_TARGET_ENV,
-                    "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY,
-                    "Content-Type": "application/json",
-                }
-                resp = await client.post(
-                    f"{settings.MTN_MOMO_API_BASE}/collection/v1_0/requesttopay",
-                    headers=headers,
-                    json={
-                        "amount": str(amount),
-                        "currency": currency,
-                        "externalId": reference,
-                        "payer": {"partyIdType": "MSISDN", "partyId": msisdn},
-                        "payerMessage": description or "LYRR purchase",
-                        "payeeNote": description or "LYRR purchase",
-                    },
-                )
-                resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise PaymentError(f"MTN MoMo charge failed: {exc}") from exc
-
-        return {
-            "status": STATUS_AWAITING,
-            "gateway_reference": reference,  # MTN echoes back X-Reference-Id
+            "gateway_reference": gateway_reference,
             "message": "Approve the payment prompt on your phone",
         }
 
     async def verify_charge(self, reference):
+        """Look up a CamPay transaction by its reference."""
         if self.is_sandbox:
-            return {"status": STATUS_COMPLETED, "gateway_reference": f"mtn_momo_{reference}"}
-        if not (settings.MTN_MOMO_SUBSCRIPTION_KEY and settings.MTN_MOMO_API_USER
-                and settings.MTN_MOMO_API_KEY):
-            raise PaymentError("Live MTN MoMo is not configured.")
+            return {"status": STATUS_COMPLETED,
+                    "gateway_reference": f"{self.method}_{reference}"}
 
         import httpx
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                token = await self._get_access_token(client)
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                token = await self._get_token(client)
                 resp = await client.get(
-                    f"{settings.MTN_MOMO_API_BASE}/collection/v1_0/requesttopay/{reference}",
+                    f"{settings.CAMPAY_BASE_URL}/transaction/{reference}/",
                     headers={
-                        "Authorization": f"Bearer {token}",
-                        "X-Target-Environment": settings.MTN_MOMO_TARGET_ENV,
-                        "Ocp-Apim-Subscription-Key": settings.MTN_MOMO_SUBSCRIPTION_KEY,
+                        "Authorization": f"Token {token}",
+                        "Content-Type": "application/json",
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPError as exc:
-            raise PaymentError(f"MTN MoMo verification failed: {exc}") from exc
+            raise PaymentError(f"CamPay verification failed: {exc}") from exc
 
-        status_map = {"SUCCESSFUL": STATUS_COMPLETED, "FAILED": STATUS_FAILED,
-                      "PENDING": STATUS_AWAITING}
-        return {
-            "status": status_map.get(data.get("status"), STATUS_PENDING),
-            "gateway_reference": reference,
+        # CamPay: PENDING | SUCCESSFUL | FAILED
+        status_map = {
+            "SUCCESSFUL": STATUS_COMPLETED,
+            "SUCCESS": STATUS_COMPLETED,
+            "FAILED": STATUS_FAILED,
+            "PENDING": STATUS_AWAITING,
         }
+        return {
+            "status": status_map.get(str(data.get("status", "")).upper(), STATUS_PENDING),
+            "gateway_reference": data.get("reference", reference),
+            "operator": data.get("operator"),
+            "reason": data.get("reason"),
+        }
+
+
+class OrangeMoneyGateway(CampayGateway):
+    """Orange Money via CamPay (operator is derived from the phone number)."""
+
+    method = METHOD_ORANGE_MONEY
+
+
+class MTNMoMoGateway(CampayGateway):
+    """MTN Mobile Money via CamPay (operator is derived from the phone number)."""
+
+    method = METHOD_MTN_MOMO
 
 
 def get_gateway(method: str) -> PaymentGateway:
@@ -543,7 +496,11 @@ async def complete_payment(
 
 
 async def _grant_book_access(db: AsyncSession, user_id: str, book_id: str) -> None:
-    """Create/refresh the UserBook license for a purchased book."""
+    """Create/refresh the UserBook license for a purchased book.
+
+    (user_id, book_id) is unique, so a concurrent grant is caught and turned
+    into an update rather than raising.
+    """
     result = await db.execute(
         select(UserBook).where(
             UserBook.user_id == user_id, UserBook.book_id == book_id
@@ -558,7 +515,18 @@ async def _grant_book_access(db: AsyncSession, user_id: str, book_id: str) -> No
             license_type="purchase",
             expires_at=None,
         )
-        db.add(user_book)
+        try:
+            async with db.begin_nested():
+                db.add(user_book)
+        except IntegrityError:
+            # Lost the race — the row now exists; fall back to updating it.
+            user_book = (await db.execute(
+                select(UserBook).where(
+                    UserBook.user_id == user_id, UserBook.book_id == book_id
+                )
+            )).scalar_one()
+            user_book.license_type = "purchase"
+            user_book.expires_at = None
     else:
         user_book.license_type = "purchase"
         user_book.expires_at = None

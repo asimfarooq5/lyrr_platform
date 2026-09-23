@@ -2,7 +2,7 @@
 User data models - bookmarks, notes, progress
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, ForeignKey, Text, JSON
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, ForeignKey, Text, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -14,11 +14,11 @@ class Bookmark(Base):
     __tablename__ = "bookmarks"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     
     # Location
-    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True)
     word_id = Column(String(50), nullable=False)  # e.g., "w1234"
     position_seconds = Column(Float, nullable=True)
     
@@ -27,7 +27,7 @@ class Bookmark(Base):
     color = Column(String(7), default="#FFD700")  # Hex color
     
     # Sync
-    client_id = Column(String(36), nullable=True)  # For offline sync
+    client_id = Column(String(36), nullable=True, index=True)  # For offline sync
     is_synced = Column(Boolean, default=True)
     
     # Timestamps
@@ -43,18 +43,18 @@ class Note(Base):
     __tablename__ = "notes"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     
     # Location
-    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True)
+    chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True)
     word_id = Column(String(50), nullable=False)
     
     # Content
     content = Column(Text, nullable=False)
     
     # Sync
-    client_id = Column(String(36), nullable=True)
+    client_id = Column(String(36), nullable=True, index=True)
     is_synced = Column(Boolean, default=True)
     
     # Timestamps
@@ -70,8 +70,8 @@ class ReadingProgress(Base):
     __tablename__ = "reading_progress"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     
     # Position
     chapter_id = Column(String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True)
@@ -97,8 +97,9 @@ class ReadingProgress(Base):
     book = relationship("Book", back_populates="progress")
     
     __table_args__ = (
-        # Unique constraint on user + book
-        # This is handled in code for flexibility
+        # One progress row per user per book — prevents duplicate rows from
+        # concurrent progress updates (read-then-insert race).
+        UniqueConstraint("user_id", "book_id", name="uq_reading_progress_user_book"),
     )
 
 
@@ -143,7 +144,7 @@ class Collection(Base):
     __tablename__ = "collections"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name = Column(String(100), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -156,11 +157,15 @@ class CollectionBook(Base):
     __tablename__ = "collection_books"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    collection_id = Column(String(36), ForeignKey("collections.id", ondelete="CASCADE"))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    collection_id = Column(String(36), ForeignKey("collections.id", ondelete="CASCADE"), index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     collection = relationship("Collection", back_populates="books")
+
+    __table_args__ = (
+        UniqueConstraint("collection_id", "book_id", name="uq_collection_book"),
+    )
 
 
 class SearchHistory(Base):
@@ -168,7 +173,7 @@ class SearchHistory(Base):
     __tablename__ = "search_history"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     
     query = Column(String(255), nullable=False)
     results_count = Column(Integer, nullable=True)

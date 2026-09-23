@@ -14,8 +14,8 @@ class ReadingSession(Base):
     __tablename__ = "reading_sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), nullable=True, index=True)
     date = Column(Date, nullable=False)
     duration_seconds = Column(Integer, default=0, nullable=False)
 
