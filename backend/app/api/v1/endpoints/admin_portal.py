@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -52,6 +53,32 @@ def format_number(value):
         return "{:,.0f}".format(float(value))
     except (ValueError, TypeError):
         return str(value)
+
+
+def _find_el(parent, prefixed: str, plain: str, ns: dict):
+    """Find a child element by a namespaced name, falling back to the bare name.
+
+    NOTE: must not use `a or b` on the results. An ElementTree Element with no
+    child elements (e.g. `<dc:publisher>Foo</dc:publisher>`) is falsy, so
+    `find(prefixed) or find(plain)` silently returns None even on a hit.
+    """
+    el = parent.find(prefixed, ns)
+    if el is not None:
+        return el
+    return parent.find(plain)
+
+
+def _make_soup(html: str):
+    """Parse HTML, preferring lxml but degrading to the stdlib parser.
+
+    lxml is faster and more forgiving, but it is a compiled dependency that
+    may be missing on some platforms — an EPUB import must never hard-fail
+    just because the optional parser is unavailable.
+    """
+    try:
+        return BeautifulSoup(html, "lxml")
+    except Exception:
+        return BeautifulSoup(html, "html.parser")
 
 
 def _parse_price(value: str) -> Optional[float]:
@@ -508,7 +535,7 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
         opf_root = opf_tree.getroot()
         pkg_ns = {"p": "http://www.idpf.org/2007/opf"}
 
-        spine = opf_root.find(".//p:spine", pkg_ns) or opf_root.find("spine")
+        spine = _find_el(opf_root, ".//p:spine", "spine", pkg_ns)
         if spine is None:
             return RedirectResponse(url=f"/admin/books/{book_id}?error=no_spine", status_code=302)
 
@@ -519,16 +546,16 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
             manifest[item_id] = item_href
 
         # Update book metadata from OPF
-        metadata = opf_root.find(".//p:metadata", pkg_ns) or opf_root.find("metadata")
+        metadata = _find_el(opf_root, ".//p:metadata", "metadata", pkg_ns)
         if metadata is not None:
             dc_ns = {"dc": "http://purl.org/dc/elements/1.1/"}
-            title_el = metadata.find("dc:title", dc_ns) or metadata.find("title")
+            title_el = _find_el(metadata, "dc:title", "title", dc_ns)
             if title_el is not None and title_el.text:
                 book.title = title_el.text[:255]
-            author_el = metadata.find("dc:creator", dc_ns) or metadata.find("creator")
+            author_el = _find_el(metadata, "dc:creator", "creator", dc_ns)
             if author_el is not None and author_el.text:
                 book.author = author_el.text[:255]
-            publisher_el = metadata.find("dc:publisher", dc_ns) or metadata.find("publisher")
+            publisher_el = _find_el(metadata, "dc:publisher", "publisher", dc_ns)
             if publisher_el is not None and publisher_el.text:
                 book.publisher = publisher_el.text[:255]
 
@@ -579,7 +606,7 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
             with open(content_path, "r", encoding="utf-8", errors="replace") as fh:
                 html_content = fh.read(5 * 1024 * 1024)  # 5 MB cap per chapter
 
-            soup = BeautifulSoup(html_content, "lxml")
+            soup = _make_soup(html_content)
             paragraphs = []
             for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"]):
                 text = tag.get_text(strip=True)
@@ -812,10 +839,27 @@ async def create_category(request: Request, name: str = Form(...), description: 
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    cat = Category(id=str(uuid.uuid4()), name=name, slug=name.lower().replace(" ", "-"))
+    name = name.strip()
+    slug = "-".join(name.lower().split())
+    # Friendly duplicate handling — name and slug are both unique.
+    existing = (await db.execute(
+        select(Category).where(or_(Category.name == name, Category.slug == slug))
+    )).scalar_one_or_none()
+    if existing:
+        return RedirectResponse(
+            url="/admin/categories?error=duplicate", status_code=302
+        )
+
+    cat = Category(id=str(uuid.uuid4()), name=name, slug=slug,
+                   description=description or None)
     db.add(cat)
-    await db.commit()
-    return RedirectResponse(url="/admin/categories", status_code=302)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost a concurrent race on the unique name/slug.
+        await db.rollback()
+        return RedirectResponse(url="/admin/categories?error=duplicate", status_code=302)
+    return RedirectResponse(url="/admin/categories?created=1", status_code=302)
 
 @router.post("/categories/{cat_id}/delete")
 async def delete_category(cat_id: str, request: Request,
