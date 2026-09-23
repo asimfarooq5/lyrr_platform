@@ -13,6 +13,13 @@
     </button>
 </div>
 
+{% if request.query_params.get('error') == 'duplicate' %}
+<div class="error-msg">A category with that name already exists.</div>
+{% endif %}
+{% if request.query_params.get('created') %}
+<div class="success-msg">Category created.</div>
+{% endif %}
+
 <div class="card" style="padding:0;overflow:hidden;">
     <table>
         <thead>

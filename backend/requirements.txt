@@ -48,7 +48,10 @@ openpyxl==3.1.2
 
 # EPUB Parsing
 beautifulsoup4==4.12.3
-lxml==5.1.0
+# lxml is preferred for HTML parsing but optional: the importer falls back to
+# the stdlib html.parser when it is unavailable. Pin loosely so a wheel exists
+# on newer Pythons (5.1.0 has no cp314 wheel).
+lxml>=5.1,<7
 
 # Image generation for seed_data.py placeholder covers.
 # Pillow 12.x ships wheels for Python 3.12–3.14; 10.x fails to build on 3.14.
