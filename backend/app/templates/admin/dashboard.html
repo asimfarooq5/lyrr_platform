@@ -73,7 +73,12 @@
         </div>
         {% else %}
         <div class="empty-state" style="padding:40px 20px;">
+            {% if stats.revenue_month %}
+            {# There is revenue in the 30-day KPI window, just none in the 14 days charted. #}
+            <p>No sales in the last 14 days. {{ '{:,.0f}'.format(stats.revenue_month) }} XAF was collected earlier this month.</p>
+            {% else %}
             <p>No completed payments yet. Revenue will chart here once readers start buying.</p>
+            {% endif %}
         </div>
         {% endif %}
     </div>
