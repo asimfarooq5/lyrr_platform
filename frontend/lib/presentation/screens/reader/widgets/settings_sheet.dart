@@ -24,6 +24,8 @@ class SettingsSheet extends StatelessWidget {
   final Function(bool) onAutoScrollChanged;
   final Function(Color) onHighlightColorChanged;
   final Function(ReadingMode) onReadingModeChanged;
+  final String? voiceLabel;
+  final VoidCallback? onChooseVoice;
 
   const SettingsSheet({
     super.key,
@@ -45,6 +47,8 @@ class SettingsSheet extends StatelessWidget {
     required this.onAutoScrollChanged,
     required this.onHighlightColorChanged,
     required this.onReadingModeChanged,
+    this.voiceLabel,
+    this.onChooseVoice,
   });
 
   @override
@@ -105,6 +109,8 @@ class SettingsSheet extends StatelessWidget {
                         _AudioTab(playbackSpeed: playbackSpeed,
                             voicePitch: voicePitch,
                             volume: volume,
+                            voiceLabel: voiceLabel,
+                            onChooseVoice: onChooseVoice,
                             onPlaybackSpeedChanged: onPlaybackSpeedChanged,
                             onVoicePitchChanged: onVoicePitchChanged,
                             onVolumeChanged: onVolumeChanged),
@@ -469,17 +475,21 @@ class _AudioTab extends StatelessWidget {
   final double playbackSpeed;
   final double voicePitch;
   final double volume;
+  final String? voiceLabel;
   final Function(double) onPlaybackSpeedChanged;
   final Function(double) onVoicePitchChanged;
   final Function(double) onVolumeChanged;
+  final VoidCallback? onChooseVoice;
 
   const _AudioTab({
     required this.playbackSpeed,
     this.voicePitch = 1.0,
     this.volume = 1.0,
+    this.voiceLabel,
     required this.onPlaybackSpeedChanged,
     required this.onVoicePitchChanged,
     required this.onVolumeChanged,
+    this.onChooseVoice,
   });
 
   @override
@@ -604,6 +614,40 @@ class _AudioTab extends StatelessWidget {
             padding: const EdgeInsets.only(left: 4),
             child: Text('${(volume * 100).round()}%',
                 style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+          ),
+
+          const SizedBox(height: 28),
+          Text('Voice', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 12),
+
+          // Narrator picker. Opens a list of the voices the device ships for
+          // this book's language, so the reader can change who reads to them.
+          InkWell(
+            onTap: onChooseVoice,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.record_voice_over, size: 18, color: Colors.grey[600]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      voiceLabel ?? 'System default',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13.5, color: Colors.black87),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18, color: Colors.grey[500]),
+                ],
+              ),
+            ),
           ),
         ],
         ),

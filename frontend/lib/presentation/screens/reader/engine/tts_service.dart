@@ -168,6 +168,39 @@ class TtsService {
   Future<bool> setVolume(double volume) =>
       _runAndCheckSuccess(() => _tts.setVolume(volume.clamp(0.0, 1.0)));
 
+  /// Every voice the platform engine offers, as `{name, locale}` pairs.
+  ///
+  /// Android exposes the installed TTS voices (Google, Samsung, downloaded
+  /// packs, ...), so the reader can pick a different narrator. Returns an empty
+  /// list when the platform gives us nothing usable — the picker then simply
+  /// shows no options rather than failing.
+  Future<List<Map<String, String>>> getVoices() async {
+    try {
+      final dynamic raw = await _tts.getVoices;
+      if (raw is! List) return const [];
+      final voices = <Map<String, String>>[];
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final name = (entry['name'] ?? '').toString().trim();
+        final locale = (entry['locale'] ?? '').toString().trim();
+        if (name.isEmpty) continue;
+        voices.add({'name': name, 'locale': locale});
+      }
+      // Stable order so the list doesn't reshuffle between opens.
+      voices.sort((a, b) =>
+          '${a['locale']}|${a['name']}'.compareTo('${b['locale']}|${b['name']}'));
+      return voices;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Selects the narration voice. Pair it with [setLanguage] — Android voices
+  /// are keyed by (name, locale) together.
+  Future<bool> setVoice(String name, String locale) => _runAndCheckSuccess(
+        () => _tts.setVoice({'name': name, 'locale': locale}),
+      );
+
   /// Treats a `1` result as success and every other outcome — including a
   /// thrown exception — as `false`, so callers never have to wrap TTS calls
   /// in try/catch themselves.
