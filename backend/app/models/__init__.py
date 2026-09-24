@@ -5,6 +5,7 @@ from .user_data import Bookmark, Note, ReadingProgress, UserSettings, SearchHist
 from .sync import SyncQueue, SyncConflict, SyncCheckpoint
 from .content import Category, Author, BookCategory, SubscriptionPlan, UserSubscription, Payment
 from .reading_session import ReadingSession
+from .verification import VerificationCode
 
 __all__ = [
     "User",
@@ -31,4 +32,5 @@ __all__ = [
     "UserSubscription",
     "Payment",
     "ReadingSession",
+    "VerificationCode",
 ]

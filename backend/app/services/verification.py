@@ -2,24 +2,33 @@
 Email/phone verification service (FRS §4).
 
 Generates and validates one-time passcodes (OTP) for email and phone
-verification. Uses Redis as the store when available and falls back to an
-in-process cache otherwise, so the flow works in any deployment.
+verification.
 
-Sending is intentionally a no-op log in sandbox mode: the OTP is returned in
-the response so local development can complete verification. Set
-VERIFICATION_MODE=live and wire a provider (email SMTP / SMS gateway) for real
-delivery.
+STORAGE: codes are persisted in the database. Process memory cannot be used
+because the API runs as multiple uvicorn workers — each worker is a separate
+process, so a code issued by one worker would be invisible to the worker that
+handles the confirmation. Redis is used as a fast path when it is reachable,
+with the database as the system of record.
+
+Delivery: with VERIFICATION_MODE=sandbox the code is only logged (and returned
+to the caller when DEV_EXPOSE_TOKENS is on). Set VERIFICATION_MODE=live and
+configure SMTP/SMS for real delivery.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
-import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.redis import get_redis
+from app.models.verification import VerificationCode
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +36,13 @@ OTP_TTL_SECONDS = 600  # 10 minutes
 OTP_LENGTH = 6
 MAX_ATTEMPTS = 5
 
-# In-process fallback store: {key: {"code": ..., "expires_at": ..., "attempts": ...}}
-_memory_store: dict = {}
-
 
 def _key(channel: str, target: str) -> str:
     return f"lyrr:otp:{channel}:{target.strip().lower()}"
+
+
+def _hash(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
 
 
 def _generate_code() -> str:
@@ -40,53 +50,42 @@ def _generate_code() -> str:
     return f"{secrets.randbelow(9) + 1}{secrets.randbelow(10 ** (OTP_LENGTH - 1)):0{OTP_LENGTH - 1}d}"
 
 
-async def _store_otp(key: str, code: str) -> None:
-    redis = await get_redis()
-    if redis is not None:
-        try:
-            await redis.set(key, code, ex=OTP_TTL_SECONDS)
-            return
-        except Exception:
-            logger.warning("Redis OTP store failed; using in-memory fallback")
-    _memory_store[key] = {"code": code, "expires_at": time.time() + OTP_TTL_SECONDS, "attempts": 0}
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-async def _get_otp(key: str) -> Optional[str]:
-    redis = await get_redis()
-    if redis is not None:
-        try:
-            return await redis.get(key)
-        except Exception:
-            logger.warning("Redis OTP read failed; using in-memory fallback")
-    entry = _memory_store.get(key)
-    if not entry:
-        return None
-    if entry["expires_at"] < time.time():
-        _memory_store.pop(key, None)
-        return None
-    return entry["code"]
+async def request_otp(channel: str, target: str, db: AsyncSession) -> str:
+    """Issue an OTP for the channel/target and deliver it.
 
-
-async def _delete_otp(key: str) -> None:
-    redis = await get_redis()
-    if redis is not None:
-        try:
-            await redis.delete(key)
-            return
-        except Exception:
-            pass
-    _memory_store.pop(key, None)
-
-
-async def request_otp(channel: str, target: str) -> str:
-    """Generate and send an OTP for the given channel/target.
-
-    Returns the OTP. In sandbox mode the OTP is returned to the caller so the
-    verification flow can complete locally; in live mode it is emailed or
-    SMS'd instead and an empty string is returned.
+    Returns the code in sandbox mode (so local flows can complete), otherwise
+    an empty string — in live mode the code only travels via email/SMS.
     """
+    target = target.strip()
     code = _generate_code()
-    await _store_otp(_key(channel, target), code)
+    now = _utcnow()
+
+    # Invalidate any outstanding codes for this target, then store the new one.
+    await db.execute(
+        delete(VerificationCode).where(
+            VerificationCode.channel == channel,
+            VerificationCode.target == target.lower(),
+        )
+    )
+    db.add(VerificationCode(
+        channel=channel,
+        target=target.lower(),
+        code_hash=_hash(code),
+        expires_at=now + timedelta(seconds=OTP_TTL_SECONDS),
+    ))
+
+    # Best-effort Redis mirror so a deployment with Redis avoids a DB read.
+    redis = await get_redis()
+    if redis is not None:
+        try:
+            await redis.set(_key(channel, target), code, ex=OTP_TTL_SECONDS)
+        except Exception:
+            logger.debug("Redis OTP mirror failed (non-fatal)", exc_info=True)
+
     if getattr(settings, "VERIFICATION_MODE", "sandbox") == "live":
         if channel == "email":
             from app.services.email import send_otp_email
@@ -100,23 +99,54 @@ async def request_otp(channel: str, target: str) -> str:
                 channel, target,
             )
         return ""
+
     logger.info("OTP for %s %s: %s (sandbox)", channel, target, code)
     return code
 
 
-async def verify_otp(channel: str, target: str, code: str) -> bool:
-    """Validate an OTP. Returns True on success and consumes the code."""
-    key = _key(channel, target)
-    stored = await _get_otp(key)
-    if stored is None:
+async def verify_otp(channel: str, target: str, code: str, db: AsyncSession) -> bool:
+    """Validate an OTP for the channel/target. Consumes the code on success."""
+    target = target.strip().lower()
+    submitted = (code or "").strip()
+    if not submitted:
         return False
-    if secrets.compare_digest(stored, code.strip()):
-        await _delete_otp(key)
+
+    row = (await db.execute(
+        select(VerificationCode)
+        .where(
+            VerificationCode.channel == channel,
+            VerificationCode.target == target,
+            VerificationCode.consumed.is_(False),
+        )
+        .order_by(VerificationCode.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if row is None:
+        return False
+
+    # Expired: drop it and reject.
+    expires_at = row.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is None or expires_at < _utcnow():
+        await db.delete(row)
+        return False
+
+    if secrets.compare_digest(row.code_hash, _hash(submitted)):
+        row.consumed = True
+        await db.flush()
+        redis = await get_redis()
+        if redis is not None:
+            try:
+                await redis.delete(_key(channel, target))
+            except Exception:
+                pass
         return True
-    # Track attempts (best-effort) and clear after MAX_ATTEMPTS failures
-    entry = _memory_store.get(key)
-    if entry:
-        entry["attempts"] = entry.get("attempts", 0) + 1
-        if entry["attempts"] >= MAX_ATTEMPTS:
-            await _delete_otp(key)
+
+    # Wrong code: count the attempt and burn the code once the limit is hit.
+    row.attempts = (row.attempts or 0) + 1
+    if row.attempts >= MAX_ATTEMPTS:
+        await db.delete(row)
+    await db.flush()
     return False

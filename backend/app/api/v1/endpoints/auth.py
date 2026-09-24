@@ -405,7 +405,8 @@ async def request_verification(
         # Do not reveal account existence
         raise HTTPException(status_code=404, detail="No account found for this target")
 
-    code = await verification.request_otp(channel, target)
+    code = await verification.request_otp(channel, target, db)
+    await db.commit()
 
     return {
         "message": f"Verification code sent to {channel}",
@@ -435,7 +436,7 @@ async def confirm_verification(
     if not target:
         raise HTTPException(status_code=400, detail="target is required")
 
-    if not await verification.verify_otp(channel, target, data.code):
+    if not await verification.verify_otp(channel, target, data.code, db):
         raise HTTPException(status_code=400, detail="Invalid or expired verification code")
 
     # Mark the channel verified on the matching account.
