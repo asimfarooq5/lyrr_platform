@@ -45,11 +45,7 @@
                 </div>
                 <form method="POST" action="/admin/books/{{ book.id }}/cover" enctype="multipart/form-data" class="upload-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <label class="file-drop">
-                        <input type="file" name="file" accept="image/*" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose image…'">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
-                        <span class="file-name">Choose image…</span>
-                    </label>
+                    <input type="file" name="file" accept="image/*" required class="file-input">
                     <button type="submit" class="btn btn-primary">{{ 'Replace cover' if book.cover_url else 'Upload cover' }}</button>
                     <p class="form-hint">JPG, PNG or WebP · up to {{ (settings.MAX_COVER_SIZE_MB) }} MB</p>
                 </form>
@@ -72,11 +68,7 @@
             </p>
             <form method="POST" action="/admin/books/{{ book.id }}/upload-epub" enctype="multipart/form-data" class="upload-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <label class="file-drop">
-                    <input type="file" name="file" accept=".epub" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose EPUB…'">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
-                    <span class="file-name">Choose EPUB…</span>
-                </label>
+                <input type="file" name="file" accept=".epub" required class="file-input">
                 <button type="submit" class="btn btn-primary">{{ 'Re-import EPUB' if chapter_count else 'Upload & parse' }}</button>
                 <p class="form-hint">Re-importing replaces the existing chapters and sets the book to Published.</p>
             </form>
@@ -94,11 +86,7 @@
             </p>
             <form method="POST" action="/admin/books/{{ book.id }}/audio" enctype="multipart/form-data" class="upload-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <label class="file-drop">
-                    <input type="file" name="file" accept="audio/*" required onchange="this.parentNode.querySelector('.file-name').textContent = this.files[0]?.name || 'Choose audio…'">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B4EFF" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
-                    <span class="file-name">Choose audio…</span>
-                </label>
+                <input type="file" name="file" accept="audio/*" required class="file-input">
                 <button type="submit" class="btn btn-primary">Upload audio</button>
                 <p class="form-hint">MP3, M4A, WAV or FLAC · up to {{ settings.MAX_UPLOAD_SIZE_MB }} MB</p>
             </form>
@@ -229,13 +217,34 @@
                            border:1px dashed #d8dce3; border-radius:10px; }
     .upload-form { flex:1; min-width:220px; display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
 
-    /* File drop */
-    .file-drop { display:flex; align-items:center; gap:10px; width:100%; cursor:pointer;
-                 border:1.5px dashed #d8dce3; border-radius:12px; padding:14px 16px;
-                 background:#fbfbfd; transition:border-color .15s, background .15s; }
-    .file-drop:hover { border-color:#6B4EFF; background:#f7f5ff; }
-    .file-drop input[type=file] { display:none; }
-    .file-drop .file-name { font-size:13px; color:#5b6472; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Native file input, styled. A visible "Choose File" button is far clearer
+       than a hidden input behind a label — users know exactly what to click. */
+    .file-input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1.5px dashed var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: #fbfbfd;
+        font-size: 13px;
+        color: var(--text-2);
+        cursor: pointer;
+        font-family: inherit;
+        transition: border-color .15s, background .15s;
+    }
+    .file-input:hover { border-color: var(--primary); background: #f7f5ff; }
+    .file-input::file-selector-button {
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 14px;
+        margin-right: 12px;
+        font-weight: 600;
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+    }
+    .file-input::file-selector-button:hover { background: var(--primary-hover); }
 
     .form-hint { font-size:12px; color:#9aa0aa; margin:0; }
 

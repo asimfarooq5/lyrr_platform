@@ -2,7 +2,7 @@
 Authentication schemas
 """
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -32,7 +32,15 @@ class UserResponse(UserBase):
     created_at: datetime
     phone: Optional[str] = None
     phone_verified: bool = False
-    
+
+    @field_validator("phone_verified", mode="before")
+    @classmethod
+    def _null_is_false(cls, v):
+        # The column was added after the table existed, so rows created earlier
+        # hold NULL. Coerce it rather than failing serialization (which would
+        # turn every /auth/me call into a 500).
+        return bool(v) if v is not None else False
+
     class Config:
         from_attributes = True
 
