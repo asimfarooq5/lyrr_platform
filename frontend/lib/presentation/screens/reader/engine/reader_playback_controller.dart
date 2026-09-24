@@ -123,6 +123,12 @@ class ReaderPlaybackController extends ChangeNotifier {
       case TtsInitSuccess():
         _isTtsReady = true;
         _ttsUnavailableReason = null;
+        // Re-apply the reader's chosen voice before the other knobs: Android
+        // resets rate/pitch when the voice changes, so setting the voice first
+        // keeps the reader's speed and tone.
+        if (_voiceName != null) {
+          await _ttsService.setVoice(_voiceName!, _voiceLocale ?? language);
+        }
         await _ttsService.setSpeechRate(_speechRate);
         await _ttsService.setPitch(_pitch);
         await _ttsService.setVolume(_volume);
@@ -136,6 +142,24 @@ class ReaderPlaybackController extends ChangeNotifier {
       case TtsInitFailure():
         _isTtsReady = false;
         _ttsUnavailableReason = 'Text-to-speech could not be started.';
+    }
+    _notify();
+  }
+
+  /// Voices the platform engine offers for the book's language.
+  Future<List<Map<String, String>>> availableVoices() =>
+      _ttsService.getVoices();
+
+  /// Switches the narration voice. Takes effect immediately when TTS is ready,
+  /// and is re-applied after any re-initialisation.
+  Future<void> setVoice(String name, String locale) async {
+    _voiceName = name;
+    _voiceLocale = locale;
+    if (_isTtsReady) {
+      await _ttsService.setVoice(name, locale);
+      // Re-assert rate/pitch: some engines reset them on a voice switch.
+      await _ttsService.setSpeechRate(_speechRate);
+      await _ttsService.setPitch(_pitch);
     }
     _notify();
   }
@@ -212,6 +236,12 @@ class ReaderPlaybackController extends ChangeNotifier {
 
   double _pitch = TtsService.defaultPitch;
   double get pitch => _pitch;
+
+  // Selected narration voice (null = the engine's default for the language).
+  String? _voiceName;
+  String? _voiceLocale;
+  String? get voiceName => _voiceName;
+  String? get voiceLocale => _voiceLocale;
 
   /// Narration volume, `0.0`–`1.0` (FRS §7).
   double _volume = TtsService.defaultVolume;

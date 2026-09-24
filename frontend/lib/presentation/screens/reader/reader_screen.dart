@@ -74,7 +74,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _currentChapterIndex = 0;
   String? _currentWordId; // tracks the audio-sync playhead / reading position
   String? _selectedWordId; // tracks the word tapped for highlight/note/define
-  bool _showControls = false; // Kindle-style: hidden by default
   bool _isFullscreen = false;
   bool _showBookmarksDrawer = false;
   
@@ -89,6 +88,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _autoScroll = true;
   bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
   String? _audioError;
+  bool _noAudio = false; // book ships without narration — narrate on-device
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
   bool _showPageNumber = true;
@@ -290,7 +290,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// True when the phone's own narration is this book's audio source — either
   /// there is no audio at all, or the only clip is the demo placeholder tone.
-  bool get _usesOnDeviceNarration => _audioError != null || _isPlaceholderAudio;
+  bool get _usesOnDeviceNarration => _noAudio || _audioError != null || _isPlaceholderAudio;
 
   /// The explicit "read aloud" toggle: stops narration if running, otherwise
   /// pauses the audiobook and starts narrating from the current position.
@@ -335,14 +335,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
 
       final progressData = await userDataRepo.getProgress(widget.bookId);
-      bool showResumePrompt = false;
       if (progressData != null) {
+        // Restore the saved position silently and continue reading — no
+        // confirmation dialog interrupting the flow.
         _progress = ReadingProgressModel.fromJson(progressData);
-        // Don't jump the chapter yet - ask first (see _maybeShowResumePrompt
-        // below), so a reader who wants to start over isn't yanked into the
-        // middle of the book before they get a say.
-        final resumeIndex = _getChapterIndexForWord(_progress!.wordId);
-        showResumePrompt = resumeIndex > 0 || _progress!.wordId != null;
       }
 
       // A stuck platform channel (e.g. no audio backend on this platform)
@@ -370,12 +366,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       unawaited(_playback.initializeTts().then((_) {
         if (mounted) _onPlaybackChanged();
       }));
-
-      if (showResumePrompt) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _showResumePrompt();
-        });
-      }
 
       _progressTimer = Timer.periodic(const Duration(seconds: 10), (_) {
         _saveProgress();
@@ -427,7 +417,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _loadAudio() async {
-    _safeSetState(() => _audioError = null);
+    _safeSetState(() {
+      _audioError = null;
+      _noAudio = false;
+    });
     try {
       // Offline mode (FRS §9): prefer a previously downloaded local file so
       // playback works without a network connection. Not applicable on web
@@ -444,7 +437,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final drmService = ref.read(drmServiceProvider);
       final license = await drmService.getLicense(widget.bookId);
       if (license?.downloadUrl == null) {
-        _safeSetState(() => _audioError = 'No audio available for this book');
+        // Not an error: this book simply has no narration, so the reader
+        // narrates on-device. Showing a retry banner for it would be noise.
+        _safeSetState(() => _noAudio = true);
         return;
       }
       await _audioPlayer.setUrl(license!.downloadUrl!);
@@ -462,40 +457,141 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return 0;
   }
 
-  void _showResumePrompt() {
-    showDialog<void>(
-      context: context,
-      // Force an explicit choice - dismissing by tapping outside would
-      // leave the reader on chapter 1 despite having saved progress,
-      // with no obvious way back to where they left off.
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Resume reading?'),
-        content: const Text(
-          'You have unfinished progress in this book. Would you like to '
-          'pick up where you left off, or start over from the beginning?',
+  /// Maps a playback-speed multiplier (0.5x–2.5x) onto flutter_tts's speech-rate
+  /// scale (0.0–1.0).
+  ///
+  /// These are different scales: passing the multiplier straight through made
+  /// 1.0x already the maximum speech rate, so narration sounded rushed even at
+  /// the default setting. Scale around the platform default instead, and cap it
+  /// below the top of the range so speech stays intelligible.
+  double _speechRateFor(double speed) =>
+      (TtsService.defaultSpeechRate * speed).clamp(0.1, 0.75);
+
+  /// Lets the reader pick a different narration voice.
+  ///
+  /// The list comes from the platform TTS engine, so it reflects whatever
+  /// voices are installed on the device (and only those that exist — no point
+  /// offering a narrator the phone cannot produce).
+  Future<void> _chooseVoice() async {
+    final voices = await _playback.availableVoices();
+    if (!mounted) return;
+
+    if (voices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No alternative voices found on this device.'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Start Over'),
+      );
+      return;
+    }
+
+    // Prefer voices matching the book's language, but keep the rest reachable.
+    // Some Android engines report an empty `locale` and only encode the
+    // language in the voice name (e.g. "en-au-x-aud-local"), so match on both.
+    final bookLang = TtsService.languageCodeFor(_book?.language).split('-').first;
+    bool matchesBook(Map<String, String> v) {
+      final locale = (v['locale'] ?? '').toLowerCase();
+      final name = (v['name'] ?? '').toLowerCase();
+      return locale.startsWith(bookLang) ||
+          name.startsWith('$bookLang-') ||
+          name.startsWith('${bookLang}_') ||
+          name == bookLang;
+    }
+
+    final matching = voices.where(matchesBook).toList();
+    final others = voices.where((v) => !matchesBook(v)).toList();
+
+    final selected = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _readingBg,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
           ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              final resumeIndex = _getChapterIndexForWord(_progress?.wordId);
-              _safeSetState(() => _currentChapterIndex = resumeIndex);
-              // Rebuild the chapter index for the resumed chapter and restore
-              // the saved position into it, then bring it into view.
-              _rebuildChapterContent(restorePosition: true);
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _scrollToOffset(_playback.currentOffset);
-              });
-            },
-            child: const Text('Resume'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Text(
+                  'Narration voice',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _readingTextColor,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.settings_voice, color: _readingTextColor),
+                      title: Text('System default',
+                          style: TextStyle(color: _readingTextColor)),
+                      onTap: () => Navigator.pop(sheetContext, const {'name': '', 'locale': ''}),
+                    ),
+                    if (matching.isNotEmpty)
+                      _voiceSectionHeader('For this book\'s language'),
+                    ...matching.map((v) => _voiceTile(sheetContext, v)),
+                    if (others.isNotEmpty)
+                      _voiceSectionHeader('Other languages'),
+                    ...others.map((v) => _voiceTile(sheetContext, v)),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
+    );
+
+    if (selected == null) return;
+
+    if (selected['name']!.isEmpty) {
+      // "System default" — re-initialising clears any explicit voice.
+      await _playback.setVoice('', '');
+      await _playback.initializeTts();
+      _safeSetState(() {});
+      return;
+    }
+
+    await _playback.setVoice(selected['name']!, selected['locale']!);
+    _safeSetState(() {});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Voice: ${selected['name']}')),
+    );
+  }
+
+  Widget _voiceSectionHeader(String label) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            letterSpacing: 0.6,
+            fontWeight: FontWeight.w700,
+            color: _readingSubtextColor,
+          ),
+        ),
+      );
+
+  Widget _voiceTile(BuildContext sheetContext, Map<String, String> v) {
+    final isCurrent = _playback.voiceName == v['name'];
+    return ListTile(
+      leading: Icon(
+        isCurrent ? Icons.check_circle : Icons.record_voice_over_outlined,
+        color: isCurrent ? AppColors.primary : _readingSubtextColor,
+      ),
+      title: Text(v['name']!, style: TextStyle(color: _readingTextColor)),
+      subtitle: Text(v['locale'] ?? '',
+          style: TextStyle(color: _readingSubtextColor, fontSize: 12)),
+      onTap: () => Navigator.pop(sheetContext, v),
     );
   }
 
@@ -529,7 +625,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  // Kindle tap zones: left=prev, center=toggle menu, right=next
+  // Kindle tap zones: left=previous chapter, right=next chapter.
+  // The playback controls are always on screen, so a centre tap has no job.
   void _handleTap(TapUpDetails details) {
     HapticFeedback.lightImpact();
     
@@ -548,8 +645,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _goToPreviousChapter();
     } else if (tapX > screenWidth * 0.7) {
       _goToNextChapter();
-    } else {
-      _safeSetState(() { _showControls = !_showControls; });
     }
   }
 
@@ -857,6 +952,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         autoScroll: _autoScroll,
         highlightColor: _highlightColor,
         readingMode: _readingMode,
+        voiceLabel: _playback.voiceName,
+        onChooseVoice: _chooseVoice,
         onFontSizeChanged: (v) => _safeSetState(() => _fontSize = v),
         onLineHeightChanged: (v) => _safeSetState(() => _lineHeight = v),
         onThemeChanged: (v) {
@@ -872,9 +969,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         onPlaybackSpeedChanged: (v) {
           _safeSetState(() => _playbackSpeed = v);
           _audioPlayer.setSpeed(v);
-          // The speech-rate scale is its own thing (0.0-1.0), but keeping the
-          // two in step means one slider governs "how fast am I reading".
-          _playback.setSpeechRate(v.clamp(0.1, 1.0));
+          _playback.setSpeechRate(_speechRateFor(v));
         },
         onVoicePitchChanged: (v) {
           _safeSetState(() => _voicePitch = v);
@@ -945,17 +1040,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         color: _readingBg,
         child: Column(
           children: [
-            // Top bar with slide + fade animation
-            AnimatedSlide(
-              offset: _showControls ? Offset.zero : const Offset(0, -1),
-              duration: AppAnimations.fast,
-              curve: Curves.easeInOutCubic,
-              child: AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: AppAnimations.fast,
-                child: _buildTopBar(),
-              ),
-            ),
+            // Top bar — kept visible so back / chapter info are always at hand.
+            _buildTopBar(),
             
             // Reading content with Kindle tap zones
             Expanded(
@@ -999,17 +1085,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
             
-            // Bottom bar with slide + fade animation
-            AnimatedSlide(
-              offset: _showControls ? Offset.zero : const Offset(0, 1),
-              duration: AppAnimations.fast,
-              curve: Curves.easeInOutCubic,
-              child: AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: AppAnimations.fast,
-                child: _buildBottomBar(),
-              ),
-            ),
+            // Playback bar — always visible so the play button is reachable
+            // without having to discover the tap-to-reveal gesture.
+            _buildBottomBar(),
             
             // Progress bar (always visible)
             _buildMiniProgressBar(),
@@ -1036,6 +1114,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               // Back
               IconButton(
                 icon: const Icon(Icons.arrow_back),
+                color: _readingTextColor,
                 onPressed: () => Navigator.pop(context),
               ),
               // Book title and chapter
@@ -1082,30 +1161,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               // Table of Contents
               IconButton(
                 icon: const Icon(Icons.list),
+                color: _readingTextColor,
                 tooltip: 'Table of Contents',
                 onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
               ),
               // Aa settings
               IconButton(
                 icon: const Icon(Icons.text_fields),
+                color: _readingTextColor,
                 tooltip: 'Font & Theme settings',
                 onPressed: _showAaSettings,
               ),
               // Bookmarks
               IconButton(
                 icon: const Icon(Icons.bookmark_border),
+                color: _readingTextColor,
                 tooltip: 'Bookmarks',
                 onPressed: _addBookmark,
               ),
               // Notes
               IconButton(
                 icon: const Icon(Icons.note_add_outlined),
+                color: _readingTextColor,
                 tooltip: 'Add note',
                 onPressed: _addNote,
               ),
               // Fullscreen
               IconButton(
                 icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+                color: _readingTextColor,
                 onPressed: _toggleFullscreen,
               ),
             ],
@@ -1208,7 +1292,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               onSpeedChange: (speed) {
                 _safeSetState(() => _playbackSpeed = speed);
                 _audioPlayer.setSpeed(speed);
-                _playback.setSpeechRate(speed.clamp(0.1, 1.0));
+                _playback.setSpeechRate(_speechRateFor(speed));
               },
               onTtsToggle: _toggleTts,
               textColor: _readingTextColor,
@@ -1372,35 +1456,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 child: scrollView,
               )
             : scrollView,
-
-        // Kindle tap zone indicators (briefly shown on tap)
-        if (_showControls)
-          Row(
-            children: [
-              // Left zone indicator
-              Expanded(
-                child: Container(
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.only(left: 16),
-                  child: _currentChapterIndex > 0
-                      ? Icon(Icons.chevron_left, color: _readingSubtextColor.withOpacity(0.3), size: 40)
-                      : null,
-                ),
-              ),
-              // Center zone
-              Expanded(child: Container()),
-              // Right zone indicator
-              Expanded(
-                child: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 16),
-                  child: _currentChapterIndex < _chapters.length - 1
-                      ? Icon(Icons.chevron_right, color: _readingSubtextColor.withOpacity(0.3), size: 40)
-                      : null,
-                ),
-              ),
-            ],
-          ),
 
         // Bookmark indicators on the right edge (Kindle-style)
         if (_bookmarks.isNotEmpty)
