@@ -87,6 +87,23 @@
             <form method="POST" action="/admin/books/{{ book.id }}/audio" enctype="multipart/form-data" class="upload-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="file" name="file" accept="audio/*" required class="file-input">
+                {% if book.chapters %}
+                <label class="form-label" for="chapter_id">Narrates which chapter?</label>
+                <select name="chapter_id" id="chapter_id" class="form-input">
+                    <option value="">Auto — first chapter without audio</option>
+                    {% for ch in book.chapters | sort(attribute='order_index') %}
+                    {% set has_audio = audio_chapter_ids and ch.id in audio_chapter_ids %}
+                    <option value="{{ ch.id }}" {% if has_audio %}disabled{% endif %}>
+                        {{ ch.order_index }}. {{ ch.title | truncate(48, true) }}{% if has_audio %} — already has audio{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <p class="form-hint">
+                    Word highlighting is worked out from the clip's own length against this chapter's text,
+                    so pick the chapter the recording actually narrates. Recording a book chapter by chapter
+                    and choosing each one here gives the closest sync.
+                </p>
+                {% endif %}
                 <button type="submit" class="btn btn-primary">Upload audio</button>
                 <p class="form-hint">MP3, M4A, WAV or FLAC · up to {{ settings.MAX_UPLOAD_SIZE_MB }} MB</p>
             </form>

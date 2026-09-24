@@ -124,12 +124,16 @@ class ChapterModel {
   final int orderIndex;
   final List<ParagraphModel> paragraphs;
   final List<SyncWordModel>? syncData;
+  /// Narration clip for this chapter (multi-file audiobooks). Null for books
+  /// whose audio is book-level, or that have no narration at all.
+  final String? audioUrl;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
   ChapterModel({
     required this.id, required this.bookId, required this.title,
     required this.orderIndex, required this.paragraphs, this.syncData,
+    this.audioUrl,
     required this.createdAt, this.updatedAt,
   });
 
@@ -146,6 +150,7 @@ class ChapterModel {
     syncData: (json['sync_data'] as List?)
         ?.map((s) => SyncWordModel.fromJson(s as Map<String, dynamic>))
         .toList(),
+    audioUrl: json['audio_url'] as String?,
     createdAt: json['created_at'] != null
         ? DateTime.parse((json['created_at'] as String).replaceAll('+00:00', 'Z'))
         : DateTime.now(),

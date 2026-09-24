@@ -336,7 +336,11 @@ async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depe
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    result = await db.execute(select(Book).options(selectinload(Book.media)).where(Book.id == book_id))
+    result = await db.execute(
+        select(Book)
+        .options(selectinload(Book.media), selectinload(Book.chapters))
+        .where(Book.id == book_id)
+    )
     book = result.scalar_one_or_none()
     if not book:
         return RedirectResponse(url="/admin/books")
@@ -347,9 +351,15 @@ async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depe
     chapter_count = await db.scalar(
         select(func.count(Chapter.id)).where(Chapter.book_id == book_id)
     ) or 0
+    # Which chapters already have narration — the upload form offers the rest.
+    audio_chapter_ids = set((await db.execute(
+        select(BookMedia.chapter_id).where(
+            BookMedia.book_id == book_id, BookMedia.chapter_id.isnot(None)
+        )
+    )).scalars().all())
     ctx = {"request": request, "page": "books", "book": book,
            "categories": categories, "current_category_id": current_category,
-           "chapter_count": chapter_count}
+           "chapter_count": chapter_count, "audio_chapter_ids": audio_chapter_ids}
     return templates.TemplateResponse(request, "admin/book_detail.html", await _inject_csrf(ctx, request))
 
 @router.post("/books/{book_id}")
@@ -410,6 +420,7 @@ async def upload_cover(book_id: str, request: Request, file: UploadFile = File(.
 
 @router.post("/books/{book_id}/audio")
 async def upload_audio(book_id: str, request: Request, file: UploadFile = File(...),
+                       chapter_id: str = Form(""),
                        db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
@@ -421,11 +432,42 @@ async def upload_audio(book_id: str, request: Request, file: UploadFile = File(.
     with open(path, "wb") as f:
         f.write(content)
 
+    # Read the clip's length up front: it drives both the chapter it belongs to
+    # and the word timings generated from it.
+    from app.services import alignment
+
+    duration = alignment.mp3_duration_seconds(path)
+
+    # Attach the clip to the chapter the operator chose. Left on "auto", it
+    # claims the first chapter without narration — convenient when the clips are
+    # uploaded in reading order, though it depends on the book's chapters lining
+    # up with the recording's files, so the explicit choice is the reliable one.
+    chapters = (await db.execute(
+        select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
+    )).scalars().all()
+    already = set((await db.execute(
+        select(BookMedia.chapter_id).where(
+            BookMedia.book_id == book_id, BookMedia.chapter_id.isnot(None)
+        )
+    )).scalars().all())
+
+    target = None
+    if chapter_id:
+        target = next((c for c in chapters if c.id == chapter_id), None)
+    elif chapters:
+        target = next((c for c in chapters if c.id not in already), None)
+
+    if target and duration:
+        # Timings for this chapter only, from this clip's own length.
+        alignment.build_sync_data([target], float(duration))
+
     media = BookMedia(
         id=str(uuid.uuid4()), book_id=book_id,
+        chapter_id=target.id if target else None,
         audio_url=f"/media/audio/{filename}",
         format=os.path.splitext(safe_name)[1].lstrip("."),
         size_bytes=len(content),
+        duration=int(duration) if duration else None,
         is_encrypted=False,
     )
     db.add(media)

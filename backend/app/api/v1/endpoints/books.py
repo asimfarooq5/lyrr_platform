@@ -118,7 +118,20 @@ async def get_book(
     
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
+
+    # Narration is per chapter for a multi-file audiobook; expose it alongside
+    # the text so the reader can play the clip that belongs to the open chapter.
+    # The URL carries a short-lived book-scoped token: players cannot send an
+    # Authorization header, and this keeps working when media auth is enforced.
+    media_token = create_media_token(book_id, current_user.id)
+    chapter_audio = {
+        m.chapter_id: (
+            f"{m.audio_url}{'&' if '?' in m.audio_url else '?'}token={media_token}"
+        )
+        for m in book.media
+        if m.chapter_id and m.audio_url
+    }
+
     return JSONResponse(content=jsonable_encoder({
         "id": book.id,
         "title": book.title,
@@ -138,12 +151,14 @@ async def get_book(
                 "order_index": ch.order_index,
                 "paragraphs": ch.content or [],
                 "sync_data": ch.sync_data,
+                "audio_url": chapter_audio.get(ch.id),
             }
             for ch in book.chapters
         ],
         "media": [
             {
                 "id": m.id,
+                "chapter_id": m.chapter_id,
                 "format": m.format,
                 "quality": m.quality,
                 "duration": m.duration,

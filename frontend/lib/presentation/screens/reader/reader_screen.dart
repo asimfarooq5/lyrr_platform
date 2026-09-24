@@ -16,6 +16,7 @@ import 'engine/reader_content.dart';
 import 'engine/reader_playback_controller.dart';
 import 'engine/tts_service.dart';
 import '../../../providers/app_providers.dart';
+import '../../../core/config.dart';
 import '../../../data/models/book_model.dart';
 import '../../../data/models/user_data_model.dart';
 import '../../../data/services/api_client.dart';
@@ -89,6 +90,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
   String? _audioError;
   bool _noAudio = false; // book ships without narration — narrate on-device
+  String? _loadedAudioUrl; // clip currently loaded into the player
 
   /// Shortlist size for the narration-voice picker, and the names those
   /// entries are shown under (device voices have no human-friendly names).
@@ -335,6 +337,34 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _chapters = content.chapters.map((c) => ChapterModel.fromJson(c)).toList();
       _isPreview = content.isPreview;
 
+      // The content endpoint carries text and timings; the narration URL lives
+      // on the book detail (it is per chapter for a multi-file audiobook), so
+      // fold it in here.
+      final audioByChapter = <String, String?>{};
+      for (final ch in (bookData?['chapters'] as List? ?? [])) {
+        if (ch is Map<String, dynamic>) {
+          audioByChapter[ch['id'] as String] = ch['audio_url'] as String?;
+        }
+      }
+      if (audioByChapter.isNotEmpty) {
+        _chapters = [
+          for (final c in _chapters)
+            audioByChapter.containsKey(c.id)
+                ? ChapterModel(
+                    id: c.id,
+                    bookId: c.bookId,
+                    title: c.title,
+                    orderIndex: c.orderIndex,
+                    paragraphs: c.paragraphs,
+                    syncData: c.syncData,
+                    audioUrl: audioByChapter[c.id],
+                    createdAt: c.createdAt,
+                    updatedAt: c.updatedAt,
+                  )
+                : c,
+        ];
+      }
+
       final syncData = await booksRepo.getBookSync(widget.bookId);
       _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
       _playback.setAudioSync(_syncData
@@ -429,6 +459,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return 'Page $currentPage of $totalPages';
   }
 
+  /// Narration for the chapter currently open, as an absolute URL.
+  String? get _currentChapterAudio {
+    if (_chapters.isEmpty || _currentChapterIndex >= _chapters.length) return null;
+    final path = _chapters[_currentChapterIndex].audioUrl;
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http')) return path;
+    final base = AppConfig.apiBaseUrl.replaceAll('/api/v1', '');
+    return '$base$path';
+  }
+
   Future<void> _loadAudio() async {
     _safeSetState(() {
       _audioError = null;
@@ -447,6 +487,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         }
       }
 
+      // A multi-file audiobook uploads one clip per chapter — play the one
+      // belonging to the open chapter. Books with a single book-level clip
+      // fall through to the licence below.
+      final chapterAudio = _currentChapterAudio;
+      if (chapterAudio != null) {
+        await _audioPlayer.setUrl(chapterAudio);
+        _loadedAudioUrl = chapterAudio;
+        return;
+      }
+
       final drmService = ref.read(drmServiceProvider);
       final license = await drmService.getLicense(widget.bookId);
       if (license?.downloadUrl == null) {
@@ -456,6 +506,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return;
       }
       await _audioPlayer.setUrl(license!.downloadUrl!);
+      _loadedAudioUrl = license.downloadUrl;
     } catch (e) {
       if (mounted) _safeSetState(() => _audioError = 'Could not load audio: $e');
     }
@@ -754,6 +805,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _safeSetState(() => _currentChapterIndex = index);
     _rebuildChapterContent();
     _safeSetState(() { _scrollPercent = 0.0; });
+
+    // Each chapter can carry its own narration clip, so swap the loaded audio
+    // when the new chapter has a different one.
+    if (_currentChapterAudio != _loadedAudioUrl) {
+      unawaited(_loadAudio());
+    }
+
     // Delay the scroll reset until after the AnimatedSwitcher transition.
     Future.delayed(AppAnimations.slow, () {
       if (mounted && _scrollController.hasClients) {

@@ -155,6 +155,7 @@ class LibraryTabState extends ConsumerState<LibraryTab> {
                                     onTap: () => _openBook(_books[i]),
                                     collections: _collections,
                                     onCollectionsChanged: _loadCollections,
+                                    onRemoved: _loadLibrary,
                                   ),
                                 )
                               : _buildGroupedView(),
@@ -261,6 +262,7 @@ class LibraryTabState extends ConsumerState<LibraryTab> {
           ...groups[key]!.map((book) => _BookCard(
             book: book, onTap: () => _openBook(book),
             collections: _collections, onCollectionsChanged: _loadCollections,
+            onRemoved: _loadLibrary,
           )),
         ],
       )).toList(),
@@ -277,11 +279,13 @@ class _BookCard extends ConsumerStatefulWidget {
   final VoidCallback onTap;
   final List<CollectionModel> collections;
   final VoidCallback? onCollectionsChanged;
+  final VoidCallback? onRemoved;
   const _BookCard({
     required this.book,
     required this.onTap,
     this.collections = const [],
     this.onCollectionsChanged,
+    this.onRemoved,
   });
 
   @override
@@ -305,6 +309,49 @@ class _BookCardState extends ConsumerState<_BookCard> {
     final service = ref.read(downloadServiceProvider);
     final downloaded = await service.isDownloaded(book.id);
     if (mounted) setState(() => _state = downloaded ? DownloadState.downloaded : DownloadState.notDownloaded);
+  }
+
+  /// Take the book out of the reader's library (licence + reading data).
+  Future<void> _confirmRemove() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove from library?'),
+        content: Text(
+          '"${book.title}" will be removed from your library, along with its '
+          'saved position, bookmarks and notes. You can add it again later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(userDataRepositoryProvider).removeFromLibrary(book.id);
+      // Drop any offline copy as well — the licence is gone.
+      await ref.read(downloadServiceProvider).deleteDownload(book.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Removed "${book.title}" from your library')),
+      );
+      widget.onRemoved?.call();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not remove book: $e')),
+      );
+    }
   }
 
   Future<void> _toggleDownload() async {
@@ -471,6 +518,11 @@ class _BookCardState extends ConsumerState<_BookCard> {
                 icon: _downloadIcon(),
                 tooltip: _state == DownloadState.downloaded ? 'Remove download' : 'Download for offline',
                 onPressed: _state == DownloadState.downloading ? null : _toggleDownload,
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                tooltip: 'Remove from library',
+                onPressed: _confirmRemove,
               ),
             ],
           ),

@@ -115,6 +115,13 @@ class BookMedia(Base):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
+
+    # Narration for a specific chapter. A multi-file audiobook uploads one clip
+    # per chapter; NULL means the clip is book-level (single-file audiobook or
+    # a demo tone).
+    chapter_id = Column(
+        String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     
     # Media info
     audio_url = Column(String(500), nullable=False)

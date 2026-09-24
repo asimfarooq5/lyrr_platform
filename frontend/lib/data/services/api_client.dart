@@ -399,6 +399,7 @@ class ApiEndpoints {
 
   // User Data
   static const String library = '/me/library';
+  static String removeFromLibrary(String bookId) => '/me/library/$bookId';
   static const String bookmarks = '/me/bookmarks';
   static String bookmark(String id) => '/me/bookmarks/$id';
   static const String notes = '/me/notes';

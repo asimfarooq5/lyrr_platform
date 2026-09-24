@@ -246,6 +246,11 @@ class UserDataRepository {
     return [];
   }
 
+  /// Remove a book (and its reading data) from the reader's library.
+  Future<void> removeFromLibrary(String bookId) async {
+    await apiClient.delete(ApiEndpoints.removeFromLibrary(bookId));
+  }
+
   Future<List<dynamic>> getBookmarks(String bookId) async {
     final response = await apiClient.get<List<dynamic>>(
       ApiEndpoints.bookmarks,

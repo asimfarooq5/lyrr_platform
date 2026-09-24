@@ -4,7 +4,7 @@ User data endpoints - library, bookmarks, notes, progress, streaks
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc, func as sa_func
+from sqlalchemy import select, and_, desc, delete, func as sa_func
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from datetime import datetime, date, timedelta
@@ -83,6 +83,39 @@ async def get_library(
         "by_language": [{"group": k, "books": v} for k, v in by_language.items()],
         "total": len(items),
     }
+
+
+@router.delete("/library/{book_id}")
+async def remove_from_library(
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Remove a book from the reader's library.
+
+    Drops the licence plus everything the reader accumulated for that title
+    (progress, bookmarks, notes), so re-adding it later starts clean rather
+    than resurrecting stale position data.
+    """
+    result = await db.execute(
+        select(UserBook).where(
+            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+        )
+    )
+    user_book = result.scalar_one_or_none()
+    if not user_book:
+        raise HTTPException(status_code=404, detail="Book is not in your library")
+
+    await db.delete(user_book)
+    for model in (ReadingProgress, Bookmark, Note):
+        await db.execute(
+            delete(model).where(
+                and_(model.user_id == current_user.id, model.book_id == book_id)
+            )
+        )
+    await db.commit()
+
+    return {"message": "Removed from library", "book_id": book_id}
 
 
 # Bookmarks
