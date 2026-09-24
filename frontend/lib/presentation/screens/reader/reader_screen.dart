@@ -89,6 +89,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
   String? _audioError;
   bool _noAudio = false; // book ships without narration — narrate on-device
+
+  /// Shortlist size for the narration-voice picker, and the names those
+  /// entries are shown under (device voices have no human-friendly names).
+  static const int _maxCuratedVoices = 5;
+  static const List<String> _voiceNames = [
+    'Alice', 'Daniel', 'Emma', 'George', 'Sophia', 'Liam', 'Nora', 'Owen',
+  ];
+  bool _showAllVoices = false;
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
   bool _showPageNumber = true;
@@ -273,11 +281,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
     _chapterContent = content;
 
-    // Audiobook mode only when there is a sync table to follow. A book with no
-    // audio — or only the demo placeholder tone — narrates on-device instead.
+    // Play the uploaded narration whenever there is real audio for this book;
+    // the sync table only drives word-level highlighting. Requiring sync data
+    // here meant an audiobook uploaded through the admin was ignored (there is
+    // no tooling to author timings), and the reader silently fell back to the
+    // device voice instead of the narrator the publisher shipped.
+    // A book with no audio — or only the demo placeholder tone — still
+    // narrates on-device.
     _playback.setContent(
       content,
-      audiobook: _syncData.isNotEmpty && !_usesOnDeviceNarration,
+      audiobook: !_usesOnDeviceNarration,
     );
 
     if (restorePosition) {
@@ -501,54 +514,94 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final matching = voices.where(matchesBook).toList();
     final others = voices.where((v) => !matchesBook(v)).toList();
 
+    // Device TTS voices have no human names (e.g. "en-us-x-sfg#male_1-local"),
+    // and there can be dozens. Offer a short, named shortlist instead — the
+    // way assistant apps present voices — with the full list one tap away.
+    final curated = matching.take(_maxCuratedVoices).toList();
+
     final selected = await showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: _readingBg,
-      builder: (sheetContext) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Text(
-                  'Narration voice',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: _readingTextColor,
-                  ),
-                ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final showAll = _showAllVoices;
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
               ),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    ListTile(
-                      leading: Icon(Icons.settings_voice, color: _readingTextColor),
-                      title: Text('System default',
-                          style: TextStyle(color: _readingTextColor)),
-                      onTap: () => Navigator.pop(sheetContext, const {'name': '', 'locale': ''}),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                    child: Text(
+                      'Narration voice',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _readingTextColor,
+                      ),
                     ),
-                    if (matching.isNotEmpty)
-                      _voiceSectionHeader('For this book\'s language'),
-                    ...matching.map((v) => _voiceTile(sheetContext, v)),
-                    if (others.isNotEmpty)
-                      _voiceSectionHeader('Other languages'),
-                    ...others.map((v) => _voiceTile(sheetContext, v)),
-                  ],
-                ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        _voiceTile(
+                          sheetContext,
+                          const {'name': '', 'locale': ''},
+                          title: 'System default',
+                          subtitle: 'Use the device default',
+                          leadingIcon: Icons.settings_voice,
+                        ),
+                        if (!showAll) ...[
+                          if (curated.isNotEmpty)
+                            _voiceSectionHeader('Voices'),
+                          for (var i = 0; i < curated.length; i++)
+                            _voiceTile(sheetContext, curated[i], nameIndex: i),
+                          if (matching.length > curated.length ||
+                              others.isNotEmpty)
+                            ListTile(
+                              leading: Icon(Icons.more_horiz,
+                                  color: _readingSubtextColor),
+                              title: Text(
+                                'Show all voices (${voices.length})',
+                                style: TextStyle(color: AppColors.primary),
+                              ),
+                              onTap: () =>
+                                  setSheetState(() => _showAllVoices = true),
+                            ),
+                        ] else ...[
+                          if (matching.isNotEmpty)
+                            _voiceSectionHeader('For this book\'s language'),
+                          ...matching.map((v) => _voiceTile(sheetContext, v)),
+                          if (others.isNotEmpty)
+                            _voiceSectionHeader('Other languages'),
+                          ...others.map((v) => _voiceTile(sheetContext, v)),
+                          ListTile(
+                            leading: Icon(Icons.expand_less,
+                                color: _readingSubtextColor),
+                            title: Text('Show fewer',
+                                style: TextStyle(color: AppColors.primary)),
+                            onTap: () =>
+                                setSheetState(() => _showAllVoices = false),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
+
+    _showAllVoices = false;
 
     if (selected == null) return;
 
@@ -564,7 +617,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _safeSetState(() {});
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Voice: ${selected['name']}')),
+      SnackBar(content: Text('Voice set to ${_friendlyVoiceName(selected, curated)}')),
     );
   }
 
@@ -581,16 +634,61 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         ),
       );
 
-  Widget _voiceTile(BuildContext sheetContext, Map<String, String> v) {
-    final isCurrent = _playback.voiceName == v['name'];
+  /// Friendly label for a device voice. The shortlist is numbered, so each
+  /// entry gets a distinct human name; entries beyond the shortlist (only
+  /// reachable from "show all") fall back to the engine's own identifier.
+  String _friendlyVoiceName(Map<String, String> v, List<Map<String, String>> curated) {
+    final idx = curated.indexWhere((c) => c['name'] == v['name']);
+    if (idx >= 0) return _voiceNames[idx % _voiceNames.length];
+    return v['name'] ?? 'Voice';
+  }
+
+  /// Best-effort gender hint from the engine identifier, when it carries one.
+  String? _voiceGenderHint(String identifier) {
+    final lower = identifier.toLowerCase();
+    if (lower.contains('female') || lower.contains('#f')) return 'Female';
+    if (lower.contains('male') || lower.contains('#m')) return 'Male';
+    return null;
+  }
+
+  Widget _voiceTile(
+    BuildContext sheetContext,
+    Map<String, String> v, {
+    int? nameIndex,
+    String? title,
+    String? subtitle,
+    IconData? leadingIcon,
+  }) {
+    final isDefault = (v['name'] ?? '').isEmpty;
+    final isCurrent = isDefault
+        ? _playback.voiceName == null
+        : _playback.voiceName == v['name'];
+
+    final label = title ??
+        (nameIndex != null
+            ? _voiceNames[nameIndex % _voiceNames.length]
+            : (v['name'] ?? 'Voice'));
+
+    // Name + language + gender, the way a voice picker usually reads.
+    final parts = <String>[
+      if (subtitle != null) subtitle,
+      if (!isDefault && (v['locale'] ?? '').isNotEmpty) v['locale']!,
+    ];
+    if (!isDefault) {
+      final hint = _voiceGenderHint(v['name'] ?? '');
+      if (hint != null) parts.add(hint);
+    }
+
     return ListTile(
       leading: Icon(
-        isCurrent ? Icons.check_circle : Icons.record_voice_over_outlined,
+        isCurrent ? Icons.check_circle : (leadingIcon ?? Icons.record_voice_over_outlined),
         color: isCurrent ? AppColors.primary : _readingSubtextColor,
       ),
-      title: Text(v['name']!, style: TextStyle(color: _readingTextColor)),
-      subtitle: Text(v['locale'] ?? '',
-          style: TextStyle(color: _readingSubtextColor, fontSize: 12)),
+      title: Text(label, style: TextStyle(color: _readingTextColor)),
+      subtitle: parts.isEmpty
+          ? null
+          : Text(parts.join(' · '),
+              style: TextStyle(color: _readingSubtextColor, fontSize: 12)),
       onTap: () => Navigator.pop(sheetContext, v),
     );
   }
