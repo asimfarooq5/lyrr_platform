@@ -2,6 +2,8 @@
 /// 
 /// Browse and search for new books
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
@@ -95,6 +97,8 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${book.title} added to your library')),
         );
+        // Reload so the card and detail sheet stop offering it.
+        unawaited(_loadBooks());
         return;
       }
 
@@ -122,6 +126,8 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${book.title} added to your library')),
       );
+      // Reload so the card and detail sheet stop offering it.
+      unawaited(_loadBooks());
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
