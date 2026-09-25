@@ -23,6 +23,9 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
   final _searchController = TextEditingController();
   bool _isLoading = true;
   List<BookModel> _books = [];
+  /// Books added while their detail sheet was open, so the sheet's button
+  /// switches to "In Your Library" without a restart.
+  final Map<String, bool> _purchasedInSheet = {};
   List<BookModel> _featuredBooks = [];
   String? _error;
   String? _selectedLanguage;
@@ -87,26 +90,27 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
     }
   }
 
-  Future<void> _purchaseBook(BookModel book) async {
+  /// Returns true when the book ends up in the reader's library.
+  Future<bool> _purchaseBook(BookModel book) async {
     try {
       // Free books skip checkout entirely and are granted immediately.
       if (book.isFree) {
         final booksRepo = ref.read(booksRepositoryProvider);
         await booksRepo.purchaseBook(book.id);
-        if (!mounted) return;
+        if (!mounted) return false;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${book.title} added to your library')),
         );
         // Reload so the card and detail sheet stop offering it.
         unawaited(_loadBooks());
-        return;
+        return true;
       }
 
       final repo = ref.read(paymentsRepositoryProvider);
 
       // Show payment method sheet (pay-per-book, FRS §10)
       final method = await _showPaymentMethodSheet(book);
-      if (method == null) return;
+      if (method == null) return false;
 
       final payment = await repo.checkout(
         method: method,
@@ -122,17 +126,19 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
         }
       }
 
-      if (!mounted) return;
+      if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${book.title} added to your library')),
       );
       // Reload so the card and detail sheet stop offering it.
       unawaited(_loadBooks());
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to purchase: ${e.toString().replaceAll('Exception: ', '')}')),
       );
+      return false;
     }
   }
 
@@ -415,21 +421,29 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, controller) => _BookDetailsSheet(
-          book: book,
-          scrollController: controller,
-          onPurchase: () => _purchaseBook(book),
-          onReadSample: () {
-            Navigator.pop(context);
-            Navigator.push(context, MaterialPageRoute(
-              builder: (_) => ReaderScreen(bookId: book.id),
-            ));
-          },
+      builder: (_) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.9,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (_, controller) => _BookDetailsSheet(
+            book: book,
+            scrollController: controller,
+            isPurchasedOverride: _purchasedInSheet[book.id],
+            onPurchase: () async {
+              final added = await _purchaseBook(book);
+              if (added && sheetContext.mounted) {
+                setSheetState(() => _purchasedInSheet[book.id] = true);
+              }
+            },
+            onReadSample: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(
+                builder: (_) => ReaderScreen(bookId: book.id),
+              ));
+            },
+          ),
         ),
       ),
     );
@@ -598,13 +612,19 @@ class _BookDetailsSheet extends StatelessWidget {
   final ScrollController scrollController;
   final VoidCallback onPurchase;
   final VoidCallback? onReadSample;
+  /// Overrides book.isPurchased so the sheet reflects a purchase made while it
+  /// is open, without waiting for the list to reload.
+  final bool? isPurchasedOverride;
 
   const _BookDetailsSheet({
     required this.book,
     required this.scrollController,
     required this.onPurchase,
     this.onReadSample,
+    this.isPurchasedOverride,
   });
+
+  bool get _owned => isPurchasedOverride ?? book.isPurchased;
 
   @override
   Widget build(BuildContext context) {
@@ -760,12 +780,12 @@ class _BookDetailsSheet extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   ElevatedButton(
-                    onPressed: book.isPurchased ? null : onPurchase,
+                    onPressed: _owned ? null : onPurchase,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 56),
                     ),
                     child: Text(
-                      book.isPurchased
+                      _owned
                           ? 'In Your Library'
                           : book.isFree
                               ? 'Add to Library — Free'
