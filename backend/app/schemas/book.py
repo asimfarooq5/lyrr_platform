@@ -118,6 +118,9 @@ class BookResponse(BookBase):
     status: BookStatus
     is_featured: bool
     price: Optional[float] = None
+    # Whether the signed-in reader already owns this book. Drives the store
+    # button ("Add to Library" vs "In Your Library").
+    is_purchased: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 

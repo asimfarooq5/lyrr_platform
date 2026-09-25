@@ -64,6 +64,14 @@ async def list_books(
     result = await db.execute(query)
     books = result.scalars().all()
     
+    # Mark which of these the reader already owns, so the store shows "In Your
+    # Library" instead of inviting them to add it again.
+    owned = set((await db.execute(
+        select(UserBook.book_id).where(UserBook.user_id == current_user.id)
+    )).scalars().all())
+    for book in books:
+        book.is_purchased = book.id in owned
+
     return {
         "items": books,
         "total": total,
@@ -143,6 +151,11 @@ async def get_book(
         "word_count": book.word_count,
         "status": book.status.value if hasattr(book.status, 'value') else book.status,
         "is_featured": book.is_featured,
+        "is_purchased": await db.scalar(
+            select(func.count()).select_from(UserBook).where(and_(
+                UserBook.user_id == current_user.id, UserBook.book_id == book_id
+            ))
+        ) > 0,
         "created_at": str(book.created_at) if book.created_at else None,
         "chapters": [
             {
@@ -342,8 +355,16 @@ async def purchase_book(
             and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
         )
     )
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Book already purchased")
+    # Already owned: treat as success. The mobile button reads as "Add to
+    # Library" even for a book that is already there, so failing here would
+    # leave the reader tapping a button that appears to do nothing.
+    existing = result.scalar_one_or_none()
+    if existing:
+        return JSONResponse(content=jsonable_encoder({
+            "message": "Book is already in your library",
+            "book_id": book_id,
+            "already_owned": True,
+        }))
 
     # Get book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
