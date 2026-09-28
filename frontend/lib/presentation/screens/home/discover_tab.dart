@@ -433,9 +433,12 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
             isPurchasedOverride: _purchasedInSheet[book.id],
             onPurchase: () async {
               final added = await _purchaseBook(book);
-              if (added && sheetContext.mounted) {
-                setSheetState(() => _purchasedInSheet[book.id] = true);
-              }
+              if (!added) return;
+              _purchasedInSheet[book.id] = true;
+              // Close the sheet so the reader lands back on the store and can
+              // actually see the confirmation — a snackbar raised while a modal
+              // sheet is up sits behind it and never gets read.
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
             },
             onReadSample: () {
               Navigator.pop(context);

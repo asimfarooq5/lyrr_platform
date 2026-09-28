@@ -260,6 +260,15 @@ class ReaderPlaybackController extends ChangeNotifier {
     _speechRate = rate;
     _notify();
     await _ttsService.setSpeechRate(rate);
+
+    // The platform applies a new speaking rate to the *next* utterance, so a
+    // change made mid-sentence is not heard until the current chunk finishes.
+    // That reads as the speed control doing nothing, so restart the chunk and
+    // let the reader hear the new rate straight away.
+    if (_playbackState == TtsPlaybackState.playing) {
+      await pause();
+      await play();
+    }
   }
 
   Future<void> setPitch(double pitch) async {
