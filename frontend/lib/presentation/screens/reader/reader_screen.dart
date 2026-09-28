@@ -389,8 +389,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ];
         }
 
-        final syncData = await booksRepo.getBookSync(widget.bookId);
-        _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
+        // /content already carries each chapter's timings, so a separate sync
+        // fetch only repeated ~1.5 MB of the same data and cost another
+        // round-trip on every chapter open.
+        _syncData = [
+          for (final c in _chapters) ...(c.syncData ?? const <SyncWordModel>[]),
+        ];
       }
 
       _playback.setAudioSync(_syncData

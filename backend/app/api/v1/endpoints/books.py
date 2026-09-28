@@ -160,10 +160,12 @@ async def get_book(
         "chapters": [
             {
                 "id": ch.id,
+                # Chapter text is deliberately NOT included here. This endpoint
+                # is the book's detail/cover sheet; the reader gets the words
+                # from /content. Returning the full text in both meant opening a
+                # book pulled the whole manuscript twice.
                 "title": ch.title,
                 "order_index": ch.order_index,
-                "paragraphs": ch.content or [],
-                "sync_data": ch.sync_data,
                 "audio_url": chapter_audio.get(ch.id),
             }
             for ch in book.chapters
