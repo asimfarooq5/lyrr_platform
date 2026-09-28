@@ -9,6 +9,7 @@ import itertools
 import json
 import math
 import os
+import shutil
 import random
 import struct
 import sys
@@ -36,6 +37,28 @@ _COVER_PALETTE = [
     (0x6B, 0x4E, 0xFF), (0x00, 0xD9, 0xC0), (0xFF, 0x6B, 0x6B),
     (0xFF, 0xB4, 0x00), (0x3B, 0x82, 0xF6), (0x10, 0xB9, 0x81),
 ]
+
+
+def install_seed_cover(book_id: str, cover_name: str | None) -> str | None:
+    """Copy a book's bundled cover art into the served covers directory.
+
+    The demo books ship the publisher's own artwork (extracted from their
+    EPUBs). Falling back to a generated gradient made the store look like an
+    unfinished prototype, so real art is preferred whenever it is present.
+    """
+    if not cover_name:
+        return None
+    src = os.path.join(SEED_CONTENT_DIR, "covers", cover_name)
+    if not os.path.exists(src):
+        return None
+    ext = os.path.splitext(cover_name)[1].lower() or ".jpg"
+    filename = f"seed-{book_id}{ext}"
+    try:
+        shutil.copyfile(src, os.path.join(COVERS_DIR, filename))
+    except OSError as exc:
+        print(f"   Could not install cover {cover_name}: {exc}")
+        return None
+    return filename
 
 
 def generate_cover(book_id: str, title: str, author: str) -> str | None:
@@ -229,6 +252,7 @@ def load_seed_books() -> list:
             "title": data["title"],
             "author": data["author"],
             "description": data["description"],
+            "cover": data.get("cover"),
             "language": data.get("language", "en"),
             "genre": data.get("genre", "fiction"),
             "price": data.get("price"),
@@ -375,7 +399,10 @@ async def seed():
                 continue
 
             book_id = str(uuid.uuid4())
-            cover_filename = generate_cover(book_id, book_data["title"], book_data["author"])
+            cover_filename = (
+                install_seed_cover(book_id, book_data.get("cover"))
+                or generate_cover(book_id, book_data["title"], book_data["author"])
+            )
             book = Book(
                 id=book_id,
                 title=book_data["title"],

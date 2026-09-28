@@ -328,45 +328,71 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final booksRepo = ref.read(booksRepositoryProvider);
       final userDataRepo = ref.read(userDataRepositoryProvider);
 
-      final bookData = await booksRepo.getBook(widget.bookId);
-      if (bookData != null) {
-        _book = BookModel.fromJson(bookData);
-      }
-
-      final content = await booksRepo.getBookContentWithPreviewFlag(widget.bookId);
-      _chapters = content.chapters.map((c) => ChapterModel.fromJson(c)).toList();
-      _isPreview = content.isPreview;
-
-      // The content endpoint carries text and timings; the narration URL lives
-      // on the book detail (it is per chapter for a multi-file audiobook), so
-      // fold it in here.
-      final audioByChapter = <String, String?>{};
-      for (final ch in (bookData?['chapters'] as List? ?? [])) {
-        if (ch is Map<String, dynamic>) {
-          audioByChapter[ch['id'] as String] = ch['audio_url'] as String?;
+      // Offline-first: read a downloaded copy straight from the local database.
+      // Going to the network for a title already on the device made opening it
+      // as slow as downloading it, because the content and sync endpoints carry
+      // the entire text and every word timing.
+      Map<String, dynamic>? bookData;
+      var loadedLocally = false;
+      if (!kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final localBook = await db.getBook(widget.bookId);
+        if (localBook != null && localBook.isDownloaded) {
+          final localChapters = await db.getChapters(widget.bookId);
+          if (localChapters.isNotEmpty) {
+            _book = localBook;
+            _chapters = localChapters;
+            // Timings travel with the chapters, so no separate sync fetch.
+            _syncData = [
+              for (final c in localChapters) ...(c.syncData ?? const <SyncWordModel>[]),
+            ];
+            loadedLocally = true;
+          }
         }
       }
-      if (audioByChapter.isNotEmpty) {
-        _chapters = [
-          for (final c in _chapters)
-            audioByChapter.containsKey(c.id)
-                ? ChapterModel(
-                    id: c.id,
-                    bookId: c.bookId,
-                    title: c.title,
-                    orderIndex: c.orderIndex,
-                    paragraphs: c.paragraphs,
-                    syncData: c.syncData,
-                    audioUrl: audioByChapter[c.id],
-                    createdAt: c.createdAt,
-                    updatedAt: c.updatedAt,
-                  )
-                : c,
-        ];
+
+      if (!loadedLocally) {
+        bookData = await booksRepo.getBook(widget.bookId);
+        if (bookData != null) {
+          _book = BookModel.fromJson(bookData);
+        }
+
+        final content = await booksRepo.getBookContentWithPreviewFlag(widget.bookId);
+        _chapters = content.chapters.map((c) => ChapterModel.fromJson(c)).toList();
+        _isPreview = content.isPreview;
+
+        // The content endpoint carries text and timings; the narration URL lives
+        // on the book detail (it is per chapter for a multi-file audiobook), so
+        // fold it in here.
+        final audioByChapter = <String, String?>{};
+        for (final ch in (bookData?['chapters'] as List? ?? [])) {
+          if (ch is Map<String, dynamic>) {
+            audioByChapter[ch['id'] as String] = ch['audio_url'] as String?;
+          }
+        }
+        if (audioByChapter.isNotEmpty) {
+          _chapters = [
+            for (final c in _chapters)
+              audioByChapter.containsKey(c.id)
+                  ? ChapterModel(
+                      id: c.id,
+                      bookId: c.bookId,
+                      title: c.title,
+                      orderIndex: c.orderIndex,
+                      paragraphs: c.paragraphs,
+                      syncData: c.syncData,
+                      audioUrl: audioByChapter[c.id],
+                      createdAt: c.createdAt,
+                      updatedAt: c.updatedAt,
+                    )
+                  : c,
+          ];
+        }
+
+        final syncData = await booksRepo.getBookSync(widget.bookId);
+        _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
       }
 
-      final syncData = await booksRepo.getBookSync(widget.bookId);
-      _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
       _playback.setAudioSync(_syncData
           .map((s) => AudioSyncEntry(id: s.id, start: s.start, end: s.end))
           .toList());
