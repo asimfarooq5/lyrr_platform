@@ -191,91 +191,57 @@ SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin123")
 SEED_DEMO_EMAIL = os.environ.get("SEED_DEMO_EMAIL", "demo@lyrr.app")
 SEED_DEMO_PASSWORD = os.environ.get("SEED_DEMO_PASSWORD", "demo123")
 
-SAMPLE_BOOKS = [
-    {
-        "title": "The Great Gatsby",
-        "author": "F. Scott Fitzgerald",
-        "description": "A story of the mysteriously wealthy Jay Gatsby and his love for the beautiful Daisy Buchanan.",
-        "language": "en",
-        "duration": 14400,
-        "word_count": 47000,
-        "is_featured": True,
-        "price": 1500.0,
-        "chapters": [
-            {"title": "Chapter 1", "order": 1, "words": 50},
-            {"title": "Chapter 2", "order": 2, "words": 45},
-            {"title": "Chapter 3", "order": 3, "words": 55},
+SEED_CONTENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_content")
+
+
+def load_seed_books() -> list:
+    """Load the demo catalogue from seed_content/*.json.
+
+    The books are real public-domain titles whose text was extracted from their
+    EPUBs (see the build script in the repo history). Generating filler text
+    here meant a fresh install shipped a store whose books read as Latin
+    placeholder, which is exactly the wrong first impression for a demo.
+    """
+    if not os.path.isdir(SEED_CONTENT_DIR):
+        print(f"   No seed content at {SEED_CONTENT_DIR}; the catalogue will be empty.")
+        return []
+
+    books = []
+    for name in sorted(os.listdir(SEED_CONTENT_DIR)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(SEED_CONTENT_DIR, name), encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as exc:
+            print(f"   Skipping {name}: {exc}")
+            continue
+
+        chapters = [
+            {"title": ch["title"], "order": i + 1, "paragraphs": ch["paragraphs"]}
+            for i, ch in enumerate(data.get("chapters", []))
         ]
-    },
-    {
-        "title": "Cien Años de Soledad",
-        "author": "Gabriel García Márquez",
-        "description": "La historia de la familia Buendía en el pueblo Macondo.",
-        "language": "es",
-        "duration": 28800,
-        "word_count": 86000,
-        "is_featured": True,
-        "price": 2500.0,
-        "chapters": [
-            {"title": "Capítulo 1", "order": 1, "words": 60},
-            {"title": "Capítulo 2", "order": 2, "words": 48},
-        ]
-    },
-    {
-        "title": "Le Petit Prince",
-        "author": "Antoine de Saint-Exupéry",
-        "description": "Un conte poétique et philosophique sous l'apparence d'un conte pour enfants.",
-        "language": "fr",
-        "duration": 7200,
-        "word_count": 16000,
-        "is_featured": True,
-        "chapters": [
-            {"title": "Chapitre 1", "order": 1, "words": 35},
-            {"title": "Chapitre 2", "order": 2, "words": 40},
-            {"title": "Chapitre 3", "order": 3, "words": 30},
-        ]
-    },
-    {
-        "title": "Die Verwandlung",
-        "author": "Franz Kafka",
-        "description": "Die Geschichte des Handlungsreisenden Gregor Samsa, der eines Morgens als Insekt erwacht.",
-        "language": "de",
-        "duration": 10800,
-        "word_count": 22000,
-        "is_featured": False,
-        "chapters": [
-            {"title": "Kapitel 1", "order": 1, "words": 42},
-            {"title": "Kapitel 2", "order": 2, "words": 38},
-        ]
-    },
-    {
-        "title": "Dom Casmurro",
-        "author": "Machado de Assis",
-        "description": "Um romance que narra a história de Bentinho e Capitu.",
-        "language": "pt",
-        "duration": 16200,
-        "word_count": 38000,
-        "is_featured": False,
-        "chapters": [
-            {"title": "Capítulo 1", "order": 1, "words": 44},
-            {"title": "Capítulo 2", "order": 2, "words": 36},
-        ]
-    },
-    {
-        "title": "The Art of War",
-        "author": "Sun Tzu",
-        "description": "An ancient Chinese military treatise that has become a classic of strategy and philosophy.",
-        "language": "en",
-        "duration": 5400,
-        "word_count": 6000,
-        "is_featured": True,
-        "chapters": [
-            {"title": "Laying Plans", "order": 1, "words": 30},
-            {"title": "Waging War", "order": 2, "words": 25},
-            {"title": "Attack by Stratagem", "order": 3, "words": 28},
-        ]
-    },
-]
+        if not chapters:
+            continue
+
+        words = sum(len(p["words"]) for ch in chapters for p in ch["paragraphs"])
+        books.append({
+            "title": data["title"],
+            "author": data["author"],
+            "description": data["description"],
+            "language": data.get("language", "en"),
+            "genre": data.get("genre", "fiction"),
+            "price": data.get("price"),
+            # Narrated length, roughly 150 words a minute.
+            "duration": int(words / 150 * 60),
+            "word_count": words,
+            "is_featured": len(books) < 4,
+            "chapters": chapters,
+        })
+    return books
+
+
+SAMPLE_BOOKS = load_seed_books()
 
 LOREM_WORDS = [
     "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing",
@@ -430,17 +396,18 @@ async def seed():
             total_words_so_far = 0
             for ch in book_data["chapters"]:
                 chapter_id = str(uuid.uuid4())
-                paragraphs = []
-                words_in_chapter = []
-                words_remaining = ch["words"]
+                # Real book text when the catalogue was loaded from seed_content,
+                # otherwise fall back to filler so the seeder still runs.
+                paragraphs = ch.get("paragraphs")
+                if not paragraphs:
+                    paragraphs = []
+                    words_remaining = ch.get("words", 40)
+                    while words_remaining > 0:
+                        n = min(random.randint(5, 12), words_remaining)
+                        paragraphs.append({"words": generate_words(n)})
+                        words_remaining -= n
 
-                while words_remaining > 0:
-                    n = min(random.randint(5, 12), words_remaining)
-                    para_words = generate_words(n)
-                    words_in_chapter.extend(para_words)
-                    paragraphs.append({"words": para_words})
-                    words_remaining -= n
-
+                words_in_chapter = [w for p in paragraphs for w in p["words"]]
                 sync_data = generate_sync_data(words_in_chapter, base_time=total_words_so_far * 0.33)
 
                 chapter = Chapter(
@@ -470,7 +437,7 @@ async def seed():
                     is_encrypted=False,
                 )
                 session.add(media)
-                total_words_so_far += ch["words"]
+                total_words_so_far += len(words_in_chapter)
 
             # Demo user has purchased first book
             if i == 0:
