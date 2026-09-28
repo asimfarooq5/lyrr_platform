@@ -44,6 +44,11 @@ class SyncWordSchema(BaseModel):
 
 class ChapterSchema(BaseModel):
     id: str
+    # Must be declared: the response_model filters the payload down to these
+    # fields, and the app stores chapters against their book id. Omitting it
+    # silently emptied that field, so every downloaded chapter was filed under
+    # an empty book id and offline reading could never find them.
+    book_id: str = ""
     title: str
     order_index: int
     paragraphs: List[ParagraphSchema] = Field(default=[], validation_alias="content")

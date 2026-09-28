@@ -98,13 +98,39 @@ class DownloadService {
       final contentResponse = await _apiClient.get<Map<String, dynamic>>(
         ApiEndpoints.bookContent(bookId),
       );
-      if (contentResponse.success && contentResponse.data != null) {
-        final chapters = (contentResponse.data!['chapters'] as List? ?? [])
-            .map((c) => ChapterModel.fromJson(c as Map<String, dynamic>))
-            .toList();
-        for (final chapter in chapters) {
-          await _db.insertChapter(chapter);
-        }
+      if (!contentResponse.success || contentResponse.data == null) {
+        throw Exception(contentResponse.error ?? 'Could not download the book text');
+      }
+      final parsed = (contentResponse.data!['chapters'] as List? ?? [])
+          .map((c) => ChapterModel.fromJson(c as Map<String, dynamic>))
+          .toList();
+      // Never trust the chapter's own book id blindly: a response that omits it
+      // would file every chapter under an empty id, and the offline reader
+      // would find nothing to read no matter how many times it re-downloaded.
+      final chapters = [
+        for (final c in parsed)
+          c.bookId.isEmpty
+              ? ChapterModel(
+                  id: c.id,
+                  bookId: bookId,
+                  title: c.title,
+                  orderIndex: c.orderIndex,
+                  paragraphs: c.paragraphs,
+                  syncData: c.syncData,
+                  audioUrl: c.audioUrl,
+                  createdAt: c.createdAt,
+                  updatedAt: c.updatedAt,
+                )
+              : c,
+      ];
+      if (chapters.isEmpty) {
+        // Without chapters the offline copy is hollow: the reader would find
+        // nothing stored and go back to the network on every open. Fail the
+        // download instead of reporting a copy that cannot be read.
+        throw Exception('The book has no readable content to download');
+      }
+      for (final chapter in chapters) {
+        await _db.insertChapter(chapter);
       }
       _emit(bookId, const DownloadProgress(state: DownloadState.downloading, progress: 0.3));
 
