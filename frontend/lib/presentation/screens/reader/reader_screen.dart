@@ -400,22 +400,36 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           for (final c in _chapters) ...(c.syncData ?? const <SyncWordModel>[]),
         ];
       }
-
       _playback.setAudioSync(_syncData
           .map((s) => AudioSyncEntry(id: s.id, start: s.start, end: s.end))
           .toList());
 
-      final bookmarksData = await userDataRepo.getBookmarks(widget.bookId);
-      _bookmarks = bookmarksData.map((b) => BookmarkModel.fromJson(b)).toList();
+      // Bookmarks, notes and position come from the local copy for a downloaded
+      // book. The payloads are tiny, but as three round-trips they were most of
+      // what remained: over a second of the 1.5s it took to open a book that
+      // was already on the device.
+      if (loadedLocally && !kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final user = ref.read(currentUserProvider);
+        _bookmarks = await db.getBookmarks(widget.bookId);
+        _notes = await db.getNotes(widget.bookId);
+        if (user != null) {
+          final localProgress = await db.getProgress(user.id, widget.bookId);
+          if (localProgress != null) _progress = localProgress;
+        }
+      } else {
+        final bookmarksData = await userDataRepo.getBookmarks(widget.bookId);
+        _bookmarks = bookmarksData.map((b) => BookmarkModel.fromJson(b)).toList();
 
-      final notesData = await userDataRepo.getNotes(widget.bookId);
-      _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
+        final notesData = await userDataRepo.getNotes(widget.bookId);
+        _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
 
-      final progressData = await userDataRepo.getProgress(widget.bookId);
-      if (progressData != null) {
-        // Restore the saved position silently and continue reading — no
-        // confirmation dialog interrupting the flow.
-        _progress = ReadingProgressModel.fromJson(progressData);
+        final progressData = await userDataRepo.getProgress(widget.bookId);
+        if (progressData != null) {
+          // Restore the saved position silently and continue reading — no
+          // confirmation dialog interrupting the flow.
+          _progress = ReadingProgressModel.fromJson(progressData);
+        }
       }
 
       // A stuck platform channel (e.g. no audio backend on this platform)

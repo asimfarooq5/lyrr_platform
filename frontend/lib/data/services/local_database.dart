@@ -372,8 +372,14 @@ class LocalDatabase extends _$LocalDatabase {
 
   // Progress operations
   Future<ReadingProgressModel?> getProgress(String userId, String bookId) async {
+    // Take the most recent row rather than getSingleOrNull: both the server
+    // sync and local saves write progress, and without a unique constraint a
+    // book can accumulate several rows. getSingleOrNull threw "Too many
+    // elements" on those, which failed the whole book load.
     final query = select(readingProgress)
-      ..where((p) => p.userId.equals(userId) & p.bookId.equals(bookId));
+      ..where((p) => p.userId.equals(userId) & p.bookId.equals(bookId))
+      ..orderBy([(p) => OrderingTerm(expression: p.lastReadAt, mode: OrderingMode.desc)])
+      ..limit(1);
     final row = await query.getSingleOrNull();
     return row != null ? _progressFromRow(row) : null;
   }
