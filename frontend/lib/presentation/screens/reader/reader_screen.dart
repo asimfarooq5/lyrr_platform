@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'engine/playback_chunk.dart';
 import 'engine/reader_content.dart';
@@ -1893,11 +1894,16 @@ class _ReaderParagraphState extends State<_ReaderParagraph> {
   /// disagree with.
   final _textKey = GlobalKey();
 
-  TextStyle get _style => TextStyle(
+  /// Body text of the book itself.
+  ///
+  /// A serif typeface, deliberately different from the app's Poppins/Inter
+  /// chrome: long passages read more easily in serif, which is why readers and
+  /// reading apps use one even when their surrounding UI is sans-serif.
+  TextStyle get _style => GoogleFonts.lora(
         fontSize: widget.fontSize,
         height: widget.lineHeight,
         color: widget.textColor,
-        letterSpacing: 0.2,
+        letterSpacing: 0.1,
       );
 
   /// The word under a tap, as its `WordModel` plus its chapter-wide

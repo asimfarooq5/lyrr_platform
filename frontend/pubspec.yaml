@@ -68,6 +68,7 @@ dependencies:
   just_audio_media_kit: ^2.1.0
   media_kit_libs_linux: ^1.2.1
   drift_flutter: ^0.2.7
+  google_fonts: ^8.2.1
 
   # AI/ML (disabled - needs google services setup)
   # google_mlkit_language_id: ^0.9.0
