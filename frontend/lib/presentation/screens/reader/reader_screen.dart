@@ -440,7 +440,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       // On-device narration warms up in the background; the text is readable
       // immediately either way.
       _playback.language = TtsService.languageCodeFor(_book?.language);
-      unawaited(_playback.initializeTts().then((_) {
+      unawaited(_playback.initializeTts().then((_) async {
+        // initializeTts resets the engine to its own default rate, which reads
+        // as rushed; apply the fixed pace so narration sounds the same every
+        // time a book is opened.
+        await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
         if (mounted) _onPlaybackChanged();
       }));
 
@@ -694,6 +698,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       // "System default" — re-initialising clears any explicit voice.
       await _playback.setVoice('', '');
       await _playback.initializeTts();
+      // Re-initialising also resets the rate, so reapply the fixed pace.
+      await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
       _safeSetState(() {});
       return;
     }
