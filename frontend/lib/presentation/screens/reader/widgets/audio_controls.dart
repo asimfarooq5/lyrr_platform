@@ -78,30 +78,12 @@ class AudioControls extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Secondary controls: speed + read-aloud toggle
+            // Read-aloud toggle. The speed cycler that used to sit here was
+            // removed: changing pace restarted narration mid-sentence and tore
+            // the word highlighting out of step, so the pace is fixed.
             Row(
               children: [
                 const Spacer(),
-                GestureDetector(
-                  onTap: () {
-                    const speeds = [1.0, 1.25, 1.5, 1.75, 2.0, 0.75, 0.5];
-                    final currentIdx = speeds.indexOf(playbackSpeed);
-                    final nextSpeed = speeds[(currentIdx + 1) % speeds.length];
-                    onSpeedChange(nextSpeed);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: fg.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${playbackSpeed}x',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: onTtsToggle,
                   child: Container(

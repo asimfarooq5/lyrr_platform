@@ -502,53 +502,18 @@ class _AudioTab extends StatelessWidget {
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Playback Speed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
-          const SizedBox(height: 16),
-          
-          // Speed slider
+          // Speed is fixed. A picker was tried and every change restarted
+          // narration mid-sentence, which broke the word highlighting and never
+          // sounded right; one comfortable pace is better than a control that
+          // fights the sync.
+          Text('Narration Speed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 10),
           Row(
             children: [
-              const Text('🐢', style: TextStyle(fontSize: 18)),
-              Expanded(
-                child: Slider(
-                  value: playbackSpeed,
-                  min: 0.5, max: 2.0,
-                  divisions: 6,
-                  activeColor: AppColors.primary,
-                  label: '${playbackSpeed}x',
-                  onChanged: onPlaybackSpeedChanged,
-                ),
-              ),
-              const Text('🐇', style: TextStyle(fontSize: 18)),
+              Icon(Icons.speed, size: 18, color: Colors.grey[600]),
+              const SizedBox(width: 8),
+              Text('Comfortable (fixed)', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
             ],
-          ),
-          
-          // Speed preset buttons
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) {
-              final isSelected = playbackSpeed == speed;
-              return GestureDetector(
-                onTap: () => onPlaybackSpeedChanged(speed),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.primary : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: isSelected ? null : Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Text(
-                    '${speed}x',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
           ),
 
           const SizedBox(height: 28),

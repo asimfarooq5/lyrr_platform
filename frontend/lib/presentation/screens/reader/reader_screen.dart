@@ -83,7 +83,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   double _lineHeight = 1.5;
   double _margin = 24.0;
   ReadingMode _readingMode = ReadingMode.light;
-  double _playbackSpeed = 1.0;
+  /// Narration pace. Fixed: the app shipped a speed picker, but changing pace
+  /// restarted the current sentence and pulled the word highlighting out of
+  /// step, so one comfortable rate is used throughout.
+  static const double _kFixedSpeed = 0.5;
+  double _playbackSpeed = _kFixedSpeed;
   double _voicePitch = 1.0; // FRS §7: voice tone adjustment
   double _volume = 1.0; // FRS §7: volume control
   bool _autoScroll = true;
@@ -1049,14 +1053,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _addBookmark() async {
     if (_selectedWordId == null) return;
+    // Nullable lookup, not firstWhere: `orElse: () => null as BookmarkModel`
+    // threw whenever the word had no bookmark yet — which is the common case
+    // when adding one — so the dialog never opened.
+    BookmarkModel? existing;
+    for (final b in _bookmarks) {
+      if (b.wordId == _selectedWordId) {
+        existing = b;
+        break;
+      }
+    }
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => BookmarkDialog(
         wordId: _selectedWordId!,
-        existingBookmark: _bookmarks.firstWhere(
-          (b) => b.wordId == _selectedWordId,
-          orElse: () => null as BookmarkModel,
-        ),
+        existingBookmark: existing,
       ),
     );
     if (result != null) {
@@ -1087,14 +1098,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _addNote() async {
     if (_selectedWordId == null) return;
+    // Same nullable lookup as the bookmark dialog: the old orElse cast threw
+    // for any word without an existing note, so the dialog never opened.
+    NoteModel? existingNote;
+    for (final n in _notes) {
+      if (n.wordId == _selectedWordId) {
+        existingNote = n;
+        break;
+      }
+    }
     final result = await showDialog<String>(
       context: context,
       builder: (_) => NoteDialog(
         wordId: _selectedWordId!,
-        existingNote: _notes.firstWhere(
-          (n) => n.wordId == _selectedWordId,
-          orElse: () => null as NoteModel,
-        ),
+        existingNote: existingNote,
       ),
     );
     if (result != null) {

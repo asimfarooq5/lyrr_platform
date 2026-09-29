@@ -163,20 +163,28 @@ class SyncService {
       final processed = response.data!['processed'] as List<dynamic>;
       
       for (final clientId in processed) {
-        // Find and update bookmark
-        final bookmark = unsyncedBookmarks.firstWhere(
-          (b) => (b.clientId ?? b.id) == clientId,
-          orElse: () => null as BookmarkModel,
-        );
+        // Look these up by hand rather than with firstWhere: firstWhere has no
+        // nullable result, and the old `orElse: () => null as BookmarkModel`
+        // threw on every id the server reported that was not in the unsynced
+        // list — so the whole sync aborted and nothing was ever marked synced.
+        BookmarkModel? bookmark;
+        for (final b in unsyncedBookmarks) {
+          if ((b.clientId ?? b.id) == clientId) {
+            bookmark = b;
+            break;
+          }
+        }
         if (bookmark != null) {
           await _db.updateBookmarkSyncStatus(bookmark.id, true);
         }
 
-        // Find and update note
-        final note = unsyncedNotes.firstWhere(
-          (n) => (n.clientId ?? n.id) == clientId,
-          orElse: () => null as NoteModel,
-        );
+        NoteModel? note;
+        for (final n in unsyncedNotes) {
+          if ((n.clientId ?? n.id) == clientId) {
+            note = n;
+            break;
+          }
+        }
         if (note != null) {
           await _db.updateNoteSyncStatus(note.id, true);
         }
