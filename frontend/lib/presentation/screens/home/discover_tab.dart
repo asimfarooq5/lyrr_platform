@@ -27,6 +27,10 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
   /// switches to "In Your Library" without a restart.
   final Map<String, bool> _purchasedInSheet = {};
   List<BookModel> _featuredBooks = [];
+  /// Books the reader is part-way through, most recently read first. Shown at
+  /// the top of the store so getting back into a book is one tap — the thing
+  /// readers reach for most, and the first rail a reader expects to see.
+  List<BookModel> _continueReading = [];
   String? _error;
   String? _selectedLanguage;
 
@@ -52,6 +56,25 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       // Load all books
       final allData = await repo.getBooks();
       _books = allData.map((b) => BookModel.fromJson(b)).toList();
+
+      // Books in progress, newest first. Best-effort: the store is still
+      // browsable if this fails, so a hiccup here must not blank the page.
+      try {
+        final library = await ref.read(userDataRepositoryProvider).getLibrary();
+        _continueReading = library
+            .map((b) => BookModel.fromJson(b as Map<String, dynamic>))
+            .where((b) => (b.progressPercent ?? 0) > 0)
+            .toList()
+          ..sort((a, b) {
+            final ad = a.lastReadAt, bd = b.lastReadAt;
+            if (ad == null && bd == null) return 0;
+            if (ad == null) return 1;
+            if (bd == null) return -1;
+            return bd.compareTo(ad);
+          });
+      } catch (_) {
+        _continueReading = [];
+      }
 
       setState(() {
         _isLoading = false;
@@ -351,6 +374,35 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       onRefresh: _loadBooks,
       child: CustomScrollView(
         slivers: [
+          // Continue reading — first thing on the page when there is something
+          // to go back to, so resuming takes one tap.
+          if (_continueReading.isNotEmpty && _searchController.text.isEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Text('Continue Reading', style: theme.textTheme.displaySmall),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 232,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _continueReading.length,
+                  itemBuilder: (context, index) {
+                    final book = _continueReading[index];
+                    return _ContinueReadingCard(
+                      book: book,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => ReaderScreen(bookId: book.id),
+                      )),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
           // Featured section
           if (_featuredBooks.isNotEmpty && _searchController.text.isEmpty) ...[
             SliverToBoxAdapter(
@@ -466,6 +518,84 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       'ar': 'Arabic',
     };
     return names[code] ?? code;
+  }
+}
+
+/// A book the reader is part-way through: cover, title, and how far in they
+/// are, so the shelf answers "where was I?" at a glance.
+class _ContinueReadingCard extends StatelessWidget {
+  final BookModel book;
+  final VoidCallback onTap;
+
+  const _ContinueReadingCard({required this.book, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percent = (book.progressPercent ?? 0).clamp(0, 100).toDouble();
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 140,
+        margin: const EdgeInsets.only(right: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: AppColors.primary.withOpacity(0.1),
+                      child: book.resolvedCoverUrl != null
+                          ? Image.network(
+                              book.resolvedCoverUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(Icons.book, color: AppColors.primary),
+                              ),
+                            )
+                          : const Center(
+                              child: Icon(Icons.book, color: AppColors.primary),
+                            ),
+                    ),
+                    // Progress along the bottom of the cover.
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LinearProgressIndicator(
+                        value: percent / 100,
+                        minHeight: 4,
+                        backgroundColor: Colors.black.withOpacity(0.35),
+                        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              book.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${percent.round()}% read',
+              style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
