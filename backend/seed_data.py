@@ -411,6 +411,9 @@ async def seed():
                 language=book_data["language"],
                 duration=book_data["duration"],
                 word_count=book_data["word_count"],
+                # Without this every book defaulted to "fiction", so the store
+                # labelled The Art of War as fiction.
+                book_type=book_data.get("genre", "fiction"),
                 status=BookStatus.PUBLISHED,
                 is_featured=book_data["is_featured"],
                 price=book_data.get("price"),
@@ -447,23 +450,11 @@ async def seed():
                 )
                 session.add(chapter)
 
-                # Add media entry - a short real audio clip so playback
-                # actually works, instead of a placeholder domain that was
-                # never a real server (audio.lyrr.app never existed).
-                audio_filename, real_duration = generate_audio_tone(f"{book_id}-{chapter_id}")
-                media = BookMedia(
-                    id=str(uuid.uuid4()),
-                    book_id=book_id,
-                    audio_url=f"/media/audio/{audio_filename}",
-                    format="wav",
-                    quality="high",
-                    duration=real_duration,
-                    size_bytes=os.path.getsize(os.path.join(AUDIO_DIR, audio_filename)),
-                    is_ai_narrated=True,
-                    voice_id="pNInz6obpgDQGcFmaJgB",
-                    is_encrypted=False,
-                )
-                session.add(media)
+                # No narration is attached to the demo catalogue. A synthetic
+                # tone per chapter only ever showed up as a meaningless "0:12"
+                # in the admin and played as a hum in the app; with no audio the
+                # reader narrates on-device, which is what these books should
+                # demonstrate. Real narration arrives by uploading a clip.
                 total_words_so_far += len(words_in_chapter)
 
             # Demo user has purchased first book
