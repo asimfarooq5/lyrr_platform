@@ -177,11 +177,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   validator: (value) {
+                    // Only "did you fill it in" belongs here. Length rules are
+                    // a registration concern: enforcing them at sign-in locks
+                    // out existing accounts that predate the rule — and it
+                    // tells anyone trying to get in what the policy is.
                     if (value == null || value.isEmpty) {
                       return 'Please enter your password';
-                    }
-                    if (value.length < 8) {
-                      return 'Password must be at least 8 characters';
                     }
                     return null;
                   },

@@ -95,14 +95,14 @@ async def list_subscription_plans(
 
 @router.get("/methods")
 async def list_payment_methods():
-    """List supported payment methods for the mobile app UI."""
+    """List supported payment methods for the mobile app UI.
+
+    Mobile money only. CamPay is the single gateway and it settles Orange
+    Money and MTN MoMo; a card option that could not actually be charged would
+    only complicate the checkout the reader has to get through.
+    """
     return {
         "methods": [
-            {
-                "id": "card",
-                "name": "Credit / Debit Card",
-                "requires_phone": False,
-            },
             {
                 "id": "orange_money",
                 "name": "Orange Money",
