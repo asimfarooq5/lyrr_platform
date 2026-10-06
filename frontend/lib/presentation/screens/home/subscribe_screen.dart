@@ -99,8 +99,8 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
 
       // Mobile money needs confirmation; card settles automatically.
       if (payment.isPending) {
-        final confirmed = await _confirmDialog(payment);
-        if (confirmed == true) {
+        final approved = await _awaitingApprovalDialog(payment, phone);
+        if (approved == true) {
           final result = await repo.confirmPayment(payment.id);
           _showMessage(
             result.isCompleted
@@ -108,6 +108,10 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
                 : 'Payment status: ${result.statusLabel}',
             success: result.isCompleted,
           );
+        } else {
+          // The reader backed out of the prompt; nothing was charged.
+          if (mounted) setState(() => _isProcessing = false);
+          return;
         }
       } else {
         _showMessage('Subscription activated! Welcome to LYRR Premium.',
@@ -125,16 +129,57 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
     }
   }
 
-  Future<bool?> _confirmDialog(PaymentModel payment) {
+  /// Shows the prompt a mobile-money payer actually sees: the request has gone
+  /// to their handset and they approve it there with their PIN.
+  ///
+  /// In sandbox there is no handset to approve on, so the button stands in for
+  /// that step — but the flow the client sees is the real one, in the real
+  /// order, with the real wording a payer meets.
+  Future<bool?> _awaitingApprovalDialog(PaymentModel payment, String? phone) {
+    final operator = payment.methodLabel;
+    final amount = payment.amount.toStringAsFixed(0);
+
     return showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm payment'),
-        content: Text(
-          '${payment.methodLabel} payment of ${payment.amount.toStringAsFixed(0)} '
-          '${payment.currency} is awaiting your approval.\n\n'
-          'In production you would approve it on your phone. '
-          'Confirm to complete (sandbox mode).',
+        icon: const Icon(Icons.phone_android, size: 32),
+        title: const Text('Approve the payment'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'We sent a $operator request for $amount ${payment.currency}'
+              '${phone != null && phone.isNotEmpty ? ' to $phone' : ''}.',
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Enter your $operator PIN on your phone to approve it. '
+              'Your subscription starts the moment it clears.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Waiting for your approval…',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -143,7 +188,7 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm'),
+            child: const Text("I've approved"),
           ),
         ],
       ),
