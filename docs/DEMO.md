@@ -46,9 +46,18 @@ airplane mode and open it. It still reads. This is the FRS §9 requirement.
 **Continue reading.** Back on the Store, the book now sits in a
 *Continue Reading* rail with its progress, one tap from where they stopped.
 
-**Premium.** Profile → Subscribe. Show the three payment methods —
-Card, Orange Money, MTN Mobile Money — and the Monthly / Annual plans in XAF.
-(Checkout completes in sandbox; do not promise a live charge yet.)
+**Premium.** Profile → Subscribe. Monthly / Annual plans in XAF, and the
+three payment methods: Card, Orange Money, MTN Mobile Money.
+
+Pick **MTN Mobile Money**, type a number, Subscribe — the app shows the step a
+payer really takes: *"We sent a MTN MoMo request for 2000 XAF to <number>.
+Enter your PIN on your phone."* Approve it and the subscription activates.
+The same works for Orange Money.
+
+CamPay is wired the whole way: checkout → `/collect/` → webhook at
+`/api/v1/payments/webhook/campay` (signature-verified, then re-checked with
+CamPay before any order is completed). It runs in sandbox until real
+credentials are added — see the CamPay section of the server's `.env`.
 
 ---
 
