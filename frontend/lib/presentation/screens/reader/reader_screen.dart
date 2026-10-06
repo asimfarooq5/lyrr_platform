@@ -115,6 +115,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   
   // Scroll
   final _scrollController = ScrollController();
+
+  /// Page-turning state.
+  ///
+  /// The book is laid out as pages rather than one endless scroll. A scroll
+  /// has no sense of "where am I" — no page count, no place to stop — and is
+  /// the main reason the reader did not feel like a book. Pages give a fixed
+  /// measure of progress and a natural place to rest.
+  final _pageController = PageController();
+  int _pageIndex = 0;
+  /// Paragraph indices for each page, rebuilt whenever the text, type size,
+  /// page width or height changes.
+  List<List<int>> _pages = const [];
+  double _lastPageWidth = 0;
+  double _lastPageHeight = 0;
+  double _lastPageFontSize = 0;
+  double _lastPageLineHeight = 0;
   // One key per paragraph, so auto-scroll can bring the paragraph containing
   // the current position into view (keyed by chapter id + paragraph index).
   final Map<String, GlobalKey> _paraKeys = {};
@@ -206,6 +222,40 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (maxScroll > 0) {
       _previousScrollPercent = _scrollPercent;
       _scrollPercent = (currentScroll / maxScroll).clamp(0.0, 1.0);
+    }
+  }
+
+  /// Progress now comes from the page being read rather than a scroll offset —
+  /// page 3 of 12 is a position a reader can hold on to.
+  void _onPageChanged(int pageIndex) {
+    if (_pages.isEmpty) return;
+    _previousScrollPercent = _scrollPercent;
+    final withinChapter = _pages.length <= 1
+        ? 0.0
+        : pageIndex / (_pages.length - 1);
+    final chapters = math.max(_chapters.length, 1);
+    _scrollPercent =
+        ((_currentChapterIndex + withinChapter) / chapters).clamp(0.0, 1.0);
+  }
+
+  /// Moves the open book one page forward or back, turning to the next or
+  /// previous chapter at either end — the way a reader expects a tap on the
+  /// margin to behave.
+  void _turnPage(int delta) {
+    if (_pages.isEmpty) return;
+    final target = _pageIndex + delta;
+    if (target >= 0 && target < _pages.length) {
+      _pageController.animateToPage(
+        target,
+        duration: AppAnimations.fast,
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    if (delta > 0) {
+      _goToNextChapter();
+    } else {
+      _goToPreviousChapter();
     }
   }
 
@@ -528,9 +578,37 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _noAudio = false;
     });
     try {
-      // Offline mode (FRS §9): prefer a previously downloaded local file so
-      // playback works without a network connection. Not applicable on web
-      // (no filesystem - downloads never land there in the first place).
+      // Ask the server what narration this book actually has before trusting
+      // anything on disk. A book whose narration was withdrawn still has the
+      // old clip downloaded, and playing it showed a meaningless "0:12" bar
+      // over a book that narrates perfectly well with the device voice.
+      DRMLicense? license;
+      var serverReachable = true;
+      try {
+        license = await ref.read(drmServiceProvider).getLicense(widget.bookId);
+      } catch (_) {
+        serverReachable = false;
+      }
+
+      if (serverReachable && license?.downloadUrl == null && _currentChapterAudio == null) {
+        // No narration on the server: forget any stale local copy and let the
+        // reader narrate on-device.
+        if (!kIsWeb) {
+          final db = ref.read(databaseProvider);
+          final localPath = await db.getLocalAudioPath(widget.bookId);
+          if (localPath != null && localPath.isNotEmpty) {
+            final stale = File(localPath);
+            if (await stale.exists()) await stale.delete();
+            await db.updateBookDownloadStatus(widget.bookId, true, localAudioPath: '');
+          }
+        }
+        _safeSetState(() => _noAudio = true);
+        return;
+      }
+
+      // Offline, or the book does have narration: prefer the downloaded file so
+      // playback works without a connection (FRS §9). Not applicable on web —
+      // downloads never land there in the first place.
       if (!kIsWeb) {
         final db = ref.read(databaseProvider);
         final localPath = await db.getLocalAudioPath(widget.bookId);
@@ -550,8 +628,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return;
       }
 
-      final drmService = ref.read(drmServiceProvider);
-      final license = await drmService.getLicense(widget.bookId);
       if (license?.downloadUrl == null) {
         // Not an error: this book simply has no narration, so the reader
         // narrates on-device. Showing a retry banner for it would be noise.
@@ -829,26 +905,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  // Kindle tap zones: left=previous chapter, right=next chapter.
-  // The playback controls are always on screen, so a centre tap has no job.
   void _handleTap(TapUpDetails details) {
     HapticFeedback.lightImpact();
-    
-    _safeSetState(() {
-      _tapPosition = details.localPosition;
-      _showTapFeedback = true;
-    });
-    Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) _safeSetState(() => _showTapFeedback = false);
-    });
 
     final screenWidth = MediaQuery.of(context).size.width;
     final tapX = details.localPosition.dx;
 
-    if (tapX < screenWidth * 0.3) {
-      _goToPreviousChapter();
-    } else if (tapX > screenWidth * 0.7) {
-      _goToNextChapter();
+    // Left and right margins turn the page; the middle is left alone so that
+    // tapping a word to read from it is not mistaken for a page turn. Taps
+    // used to jump a whole chapter, which made the margins feel like a trap.
+    if (tapX < screenWidth * 0.25) {
+      _turnPage(-1);
+    } else if (tapX > screenWidth * 0.75) {
+      _turnPage(1);
+    } else {
+      _safeSetState(() {
+        _tapPosition = details.localPosition;
+        _showTapFeedback = true;
+      });
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) _safeSetState(() => _showTapFeedback = false);
+      });
     }
   }
 
@@ -857,9 +934,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _openChapter(int index) {
     if (index < 0 || index >= _chapters.length) return;
     _playback.stop();
-    _safeSetState(() => _currentChapterIndex = index);
+    _safeSetState(() {
+      _currentChapterIndex = index;
+      // A new chapter is a new set of pages; start at its first one.
+      _pages = const [];
+      _pageIndex = 0;
+    });
     _rebuildChapterContent();
-    _safeSetState(() { _scrollPercent = 0.0; });
+    _safeSetState(() => _scrollPercent = 0.0);
 
     // Each chapter can carry its own narration clip, so swap the loaded audio
     // when the new chapter has a different one.
@@ -867,10 +949,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       unawaited(_loadAudio());
     }
 
-    // Delay the scroll reset until after the AnimatedSwitcher transition.
+    // Jump back to page one once the chapter swap has finished laying out.
     Future.delayed(AppAnimations.slow, () {
-      if (mounted && _scrollController.hasClients) {
-        _scrollController.jumpTo(0);
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(0);
       }
     });
   }
@@ -1341,33 +1423,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 color: _readingTextColor,
                 onPressed: () => Navigator.pop(context),
               ),
-              // Book title and chapter
+              // Book title. The chapter is not repeated here: it already
+              // opens the page in the text itself, and showing it twice in
+              // the same view is what made the reader look cluttered.
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _book?.title ?? '',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _readingTextColor,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (_chapters.isNotEmpty)
-                      Text(
-                        _chapters[_currentChapterIndex].title,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _readingSubtextColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                  ],
+                child: Text(
+                  _book?.title ?? '',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _readingTextColor,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (_isPreview)
@@ -1396,25 +1464,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 tooltip: 'Font & Theme settings',
                 onPressed: _showAaSettings,
               ),
-              // Bookmarks
-              IconButton(
-                icon: const Icon(Icons.bookmark_border),
-                color: _readingTextColor,
-                tooltip: 'Bookmarks',
-                onPressed: _addBookmark,
-              ),
-              // Notes
-              IconButton(
-                icon: const Icon(Icons.note_add_outlined),
-                color: _readingTextColor,
-                tooltip: 'Add note',
-                onPressed: _addNote,
-              ),
-              // Fullscreen
-              IconButton(
-                icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
-                color: _readingTextColor,
-                onPressed: _toggleFullscreen,
+              // Everything else lives behind one menu. Five buttons across the
+              // top of a reading page is a toolbar, not a book.
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: _readingTextColor),
+                tooltip: 'More',
+                onSelected: (value) {
+                  switch (value) {
+                    case 'bookmark':
+                      _addBookmark();
+                    case 'note':
+                      _addNote();
+                    case 'fullscreen':
+                      _toggleFullscreen();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'bookmark', child: Text('Add bookmark')),
+                  const PopupMenuItem(value: 'note', child: Text('Add note')),
+                  PopupMenuItem(
+                    value: 'fullscreen',
+                    child: Text(_isFullscreen ? 'Exit full screen' : 'Full screen'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1621,53 +1693,74 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ),
         );
 
-    // A lazy sliver list rather than a Column: a long chapter would otherwise
-    // build every paragraph's widget up front, which is real jank on first
-    // frame. Only visible paragraphs (plus a small buffer) are built.
-    final scrollView = CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(_margin, 16, _margin, 0),
-          sliver: SliverToBoxAdapter(child: centered(_buildChapterTitle(chapter.title))),
-        ),
-        SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: _margin),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, i) {
-                final paragraph = content.paragraphs[i];
-                final sourceParagraph = chapter.paragraphs[i];
-                final key = _paraKeys.putIfAbsent(
-                  '${content.chapterId}:$i',
-                  () => GlobalKey(),
-                );
-                return centered(Padding(
-                  key: key,
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _ReaderParagraph(
-                    paragraph: paragraph,
-                    source: sourceParagraph,
-                    playback: _playback,
-                    fontSize: _fontSize,
-                    lineHeight: _lineHeight,
-                    textColor: _readingTextColor,
-                    highlightColor: _highlightColor,
-                    onWordTap: _startReadingFromWord,
-                    onWordLongPress: _showWordActionSheet,
-                  ),
-                ));
-              },
-              childCount: content.paragraphs.length,
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(_margin, 0, _margin, 16),
-          sliver: SliverToBoxAdapter(child: centered(_buildChapterFooter())),
-        ),
-      ],
+    // One page at a time, laid out to fit the space available. Pagination is
+    // recomputed only when something that changes the layout changes — the
+    // type size, the line height, the page box, or the chapter itself —
+    // because measuring every paragraph is not free.
+    final pageArea = LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.min(constraints.maxWidth - _margin * 2, columnWidth);
+        final height = constraints.maxHeight;
+        if (_pages.isEmpty ||
+            _lastPageWidth != width ||
+            _lastPageHeight != height ||
+            _lastPageFontSize != _fontSize ||
+            _lastPageLineHeight != _lineHeight) {
+          _pages = _paginate(content, width, height);
+          _lastPageWidth = width;
+          _lastPageHeight = height;
+          _lastPageFontSize = _fontSize;
+          _lastPageLineHeight = _lineHeight;
+          if (_pageIndex >= _pages.length) _pageIndex = _pages.length - 1;
+        }
+
+        return PageView.builder(
+          controller: _pageController,
+          itemCount: _pages.length,
+          onPageChanged: (i) => _safeSetState(() {
+            _pageIndex = i;
+            _onPageChanged(i);
+          }),
+          itemBuilder: (context, pageIndex) {
+            final indices = _pages[pageIndex];
+            return Padding(
+              padding: EdgeInsets.fromLTRB(_margin, 16, _margin, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (pageIndex == 0) _buildChapterTitle(chapter.title),
+                  for (final i in indices)
+                    Padding(
+                      key: _paraKeys.putIfAbsent(
+                        '${content.chapterId}:$i',
+                        () => GlobalKey(),
+                      ),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ReaderParagraph(
+                        paragraph: content.paragraphs[i],
+                        source: chapter.paragraphs[i],
+                        playback: _playback,
+                        fontSize: _fontSize,
+                        lineHeight: _lineHeight,
+                        textColor: _readingTextColor,
+                        highlightColor: _highlightColor,
+                        onWordTap: _startReadingFromWord,
+                        onWordLongPress: _showWordActionSheet,
+                      ),
+                    ),
+                  if (pageIndex == _pages.length - 1) ...[
+                    const Spacer(),
+                    _buildChapterFooter(),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
+
+    final scrollView = pageArea;
 
     return Stack(
       children: [
@@ -1697,35 +1790,93 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  /// Chapter heading with a Kindle-style accent bar.
+  /// Body type of the book, matching what `_ReaderParagraph` draws with so
+  /// page measurement and rendering agree.
+  TextStyle get _readingStyle => GoogleFonts.lora(
+        fontSize: _fontSize,
+        height: _lineHeight,
+        color: _readingTextColor,
+        letterSpacing: 0.1,
+      );
+
+  /// Measures how tall one paragraph renders at the given width.
+  ///
+  /// Page breaks are decided from the real glyph layout, using the same style
+  /// and width the paragraph will be drawn with. Anything cheaper (counting
+  /// characters, assuming a fixed line height) drifts and leaves a paragraph
+  /// half off the foot of the page.
+  double _paragraphHeight(String text, double width) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: _readingStyle),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width);
+    return painter.height;
+  }
+
+  /// Splits the open chapter into pages that fit [height] at [width].
+  ///
+  /// Paragraphs are never broken across pages — an orphaned half-paragraph is
+  /// what makes a reader feel like a text box rather than a book.
+  List<List<int>> _paginate(
+    ReaderChapterContent content,
+    double width,
+    double height,
+  ) {
+    const paragraphGap = 12.0;
+    final pages = <List<int>>[];
+    var current = <int>[];
+    var used = 0.0;
+
+    for (var i = 0; i < content.paragraphs.length; i++) {
+      final h =
+          _paragraphHeight(content.paragraphs[i].text, width) + paragraphGap;
+      if (current.isNotEmpty && used + h > height) {
+        pages.add(current);
+        current = <int>[];
+        used = 0;
+      }
+      current.add(i);
+      used += h;
+    }
+    if (current.isNotEmpty) pages.add(current);
+    if (pages.isEmpty) pages.add(const []);
+    return pages;
+  }
+
+  /// The chapter opening.
+  ///
+  /// A book does not shout its chapter title in bold with a coloured bar
+  /// beside it; it sets it quietly in the middle of the page with room around
+  /// it. Matching that is most of what makes the reader feel like a book
+  /// rather than an app with text in it.
   Widget _buildChapterTitle(String title) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AnimatedContainer(
-          duration: AppAnimations.slow,
-          width: 3,
-          height: _fontSize * 1.8,
-          decoration: BoxDecoration(
-            color: _highlightColor,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: AnimatedDefaultTextStyle(
-            duration: AppAnimations.slow,
-            style: TextStyle(
-              fontSize: _fontSize * 1.3,
-              fontWeight: FontWeight.w700,
-              color: _readingTextColor,
-              letterSpacing: -0.3,
-              height: 1.3,
+    return Padding(
+      padding: EdgeInsets.only(top: _fontSize * 1.6, bottom: _fontSize * 1.4),
+      child: Column(
+        children: [
+          Text(
+            title.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: GoogleFonts.lora(
+              fontSize: _fontSize * 0.82,
+              fontWeight: FontWeight.w400,
+              color: _readingSubtextColor,
+              letterSpacing: 2.4,
+              height: 1.5,
             ),
-            child: Text(title),
           ),
-        ),
-      ],
+          SizedBox(height: _fontSize * 0.9),
+          // A short centred rule, the way a printed chapter opening is divided.
+          SizedBox(
+            width: 56,
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: _readingSubtextColor.withValues(alpha: 0.45),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

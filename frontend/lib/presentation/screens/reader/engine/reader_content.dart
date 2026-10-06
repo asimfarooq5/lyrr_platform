@@ -58,6 +58,31 @@ class ReaderChapterContent {
 
   final Map<String, ReaderWord> _byId;
 
+  /// True when a leading paragraph is really the chapter's own heading.
+  ///
+  /// Short lines that match the chapter title — in whole or in part — are
+  /// headings, not prose. A paragraph of real text is far longer than a
+  /// heading, so length is a reliable guard against eating the first line of
+  /// the story.
+  static bool _isHeadingParagraph(String text, String chapterTitle) {
+    final t = text.trim();
+    if (t.isEmpty || t.length > 80) return false;
+
+    String norm(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    final para = norm(t);
+    final title = norm(chapterTitle);
+    if (para.isEmpty || title.isEmpty) return false;
+
+    // Either one contains the other ("Down the Rabbit-Hole" vs
+    // "CHAPTER I. Down the Rabbit-Hole"), or the paragraph is just a chapter
+    // marker such as "CHAPTER I." with no title at all.
+    if (title.contains(para) || para.contains(title)) return true;
+    return RegExp(r'^(chapter|part|book)\s+([ivxlcdm]+|\d+|one|two|three|four|five|six|seven|eight|nine|ten)$')
+        .hasMatch(para);
+  }
+
   /// Builds the offset space from a chapter's word-level content.
   ///
   /// A word's range covers the word itself and never the space after it, so
@@ -67,8 +92,21 @@ class ReaderChapterContent {
     final paragraphs = <BookParagraph>[];
     final words = <ReaderWord>[];
 
-    for (var pi = 0; pi < chapter.paragraphs.length; pi++) {
-      if (pi > 0) full.write('\n\n');
+    // Imported EPUBs often carry the chapter heading as its own paragraph (or
+    // two: "CHAPTER I." then the title). The reader draws that heading itself,
+    // so leaving these in prints it twice and the page reads as a mistake.
+    var first = 0;
+    while (first < chapter.paragraphs.length &&
+        first < 3 &&
+        _isHeadingParagraph(
+          chapter.paragraphs[first].words.map((w) => w.text).join(' '),
+          chapter.title,
+        )) {
+      first++;
+    }
+
+    for (var pi = first; pi < chapter.paragraphs.length; pi++) {
+      if (pi > first) full.write('\n\n');
 
       final paragraph = chapter.paragraphs[pi];
       final paraBuf = StringBuffer();

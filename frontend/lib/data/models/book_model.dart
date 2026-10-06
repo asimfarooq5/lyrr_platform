@@ -34,7 +34,21 @@ class BookModel {
   });
 
   bool get isFree => price == null || price == 0;
-  String get formattedPrice => isFree ? 'Free' : price!.toStringAsFixed(2);
+  /// Prices are in Central African francs, the same currency the store's
+  /// subscriptions are priced in. Shown without the currency a bare "2500.00"
+  /// tells the reader nothing about what they are being asked to pay.
+  String get formattedPrice =>
+      isFree ? 'Free' : '${_thousands(price!.round())} XAF';
+
+  static String _thousands(int value) {
+    final digits = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(digits[i]);
+    }
+    return buffer.toString();
+  }
 
   String? get resolvedCoverUrl {
     if (coverUrl == null) return null;

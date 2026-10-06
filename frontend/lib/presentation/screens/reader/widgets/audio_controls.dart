@@ -49,8 +49,88 @@ class AudioControls extends StatelessWidget {
     onSeek(next);
   }
 
+  /// Read-aloud control for books with no supplied recording.
+  ///
+  /// One button, labelled with what it does — no scrubber, no skip buttons,
+  /// nothing that implies a recording exists when the book narrates with the
+  /// device voice.
+  Widget _buildReadAloudBar() {
+    const fg = Colors.white;
+    final playing = isTtsPlaying;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: const Color(0xE61A1425),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: onPlayPause,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  playing ? Icons.pause : Icons.play_arrow,
+                  color: fg,
+                  size: 26,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    playing ? 'Reading aloud' : 'Read aloud',
+                    style: const TextStyle(
+                      color: fg,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Narrated by your device · follows the text',
+                    style: TextStyle(
+                      color: fg.withValues(alpha: 0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // A book that narrates with the device voice has no recording to scrub
+    // through, so a transport with a seek bar and 0:00 timings would be a
+    // control panel for nothing. Those books get a single read-aloud button.
+    if (isTtsMode) {
+      return _buildReadAloudBar();
+    }
+
     final progress = totalDuration.inMilliseconds > 0
         ? currentPosition.inMilliseconds / totalDuration.inMilliseconds
         : 0.0;
