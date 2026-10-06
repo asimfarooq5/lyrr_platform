@@ -329,7 +329,7 @@ async def create_book(request: Request, title: str = Form(...), author: str = Fo
                 status=BookStatus.DRAFT)
     db.add(book)
     await db.commit()
-    return RedirectResponse(url=f"/admin/books/{book.id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book.id}?msg=created", status_code=302)
 
 @router.get("/books/{book_id}")
 async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depends(get_db)):
@@ -395,7 +395,7 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
         db.add(BookCategory(book_id=book_id, category_id=category_id))
 
     await db.commit()
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=updated", status_code=302)
 
 @router.post("/books/{book_id}/cover")
 async def upload_cover(book_id: str, request: Request, file: UploadFile = File(...),
@@ -416,7 +416,7 @@ async def upload_cover(book_id: str, request: Request, file: UploadFile = File(.
         return RedirectResponse(url="/admin/books")
     book.cover_url = f"/media/covers/{filename}"
     await db.commit()
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=cover_updated", status_code=302)
 
 @router.post("/books/{book_id}/audio")
 async def upload_audio(book_id: str, request: Request, file: UploadFile = File(...),
@@ -502,7 +502,7 @@ async def delete_book_route(book_id: str, request: Request,
     if book:
         await db.delete(book)
         await db.commit()
-    return RedirectResponse(url="/admin/books", status_code=302)
+    return RedirectResponse(url="/admin/books?msg=deleted", status_code=302)
 
 
 @router.post("/books/{book_id}/upload-epub")
@@ -703,7 +703,7 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
     finally:
         shutil.rmtree(epub_dir, ignore_errors=True)
 
-    return RedirectResponse(url=f"/admin/books/{book_id}?uploaded=epub", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=imported", status_code=302)
 
 # ===== USERS =====
 
@@ -901,7 +901,7 @@ async def create_category(request: Request, name: str = Form(...), description: 
         # Lost a concurrent race on the unique name/slug.
         await db.rollback()
         return RedirectResponse(url="/admin/categories?error=duplicate", status_code=302)
-    return RedirectResponse(url="/admin/categories?created=1", status_code=302)
+    return RedirectResponse(url="/admin/categories?msg=category_created", status_code=302)
 
 @router.post("/categories/{cat_id}/delete")
 async def delete_category(cat_id: str, request: Request,
@@ -914,7 +914,7 @@ async def delete_category(cat_id: str, request: Request,
     if cat:
         await db.delete(cat)
         await db.commit()
-    return RedirectResponse(url="/admin/categories", status_code=302)
+    return RedirectResponse(url="/admin/categories?msg=category_deleted", status_code=302)
 
 # ===== ANALYTICS =====
 

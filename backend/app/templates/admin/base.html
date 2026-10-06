@@ -329,6 +329,39 @@
             font-size: 14px;
             border: 1px solid #bbf7d0;
         }
+        /* Outcome banner shown after an action redirects back. */
+        .flash {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            border: 1px solid transparent;
+            animation: flash-in 0.25s ease-out;
+        }
+        .flash::before {
+            font-size: 16px;
+            line-height: 1;
+        }
+        .flash-ok {
+            background: var(--success-soft);
+            color: #166534;
+            border-color: #bbf7d0;
+        }
+        .flash-ok::before { content: "✓"; }
+        .flash-bad {
+            background: var(--danger-soft);
+            color: #b91c1c;
+            border-color: #fecaca;
+        }
+        .flash-bad::before { content: "!"; }
+        @keyframes flash-in {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: none; }
+        }
         .error-msg {
             background: var(--danger-soft);
             color: #b91c1c;
@@ -538,6 +571,50 @@
         </div>
     </div>
     <div class="main">
+        {#
+          Every admin action redirects here with the outcome in the query string.
+          Without this banner a save or delete reloads the page into an
+          identical-looking list, so the operator cannot tell whether anything
+          happened and the whole panel reads as unresponsive.
+        #}
+        {% set messages = {
+            'created': 'Book created. Add its content next, or upload an EPUB.',
+            'updated': 'Changes saved.',
+            'deleted': 'Book deleted.',
+            'imported': 'EPUB imported — chapters and content are live.',
+            'category_created': 'Category created.',
+            'category_deleted': 'Category deleted.',
+            'plan_created': 'Subscription plan created.',
+            'plan_updated': 'Subscription plan updated.',
+            'user_updated': 'User updated.',
+            'audio_uploaded': 'Audio uploaded.',
+            'audio_deleted': 'Audio deleted.',
+            'cover_updated': 'Cover updated.',
+            'status_updated': 'Status updated.',
+        } %}
+        {% set problems = {
+            'epub_too_large': 'That EPUB is larger than the upload limit — nothing was changed.',
+            'invalid_epub': 'That file is not a readable EPUB — nothing was changed.',
+            'no_opf': 'The EPUB is missing its package document — nothing was changed.',
+            'opf_not_found': 'The EPUB package document could not be read — nothing was changed.',
+            'no_spine': 'The EPUB declares no reading order — nothing was changed.',
+            'epub_import_failed': 'EPUB import failed. The file may be corrupt — nothing was changed.',
+            'duplicate': 'Something with that name already exists.',
+            'exists': 'That already exists.',
+            'not_found': 'That item no longer exists.',
+            'invalid_price': 'That price is not a number.',
+            'upload_failed': 'The upload failed — nothing was changed.',
+            'too_large': 'That file is larger than the upload limit.',
+        } %}
+        {% set ok_code = request.query_params.get('msg') %}
+        {% set bad_code = request.query_params.get('error') %}
+        {% if ok_code and messages.get(ok_code) %}
+        <div class="flash flash-ok">{{ messages[ok_code] }}</div>
+        {% elif bad_code and problems.get(bad_code) %}
+        <div class="flash flash-bad">{{ problems[bad_code] }}</div>
+        {% elif bad_code %}
+        <div class="flash flash-bad">That action could not be completed.</div>
+        {% endif %}
         {% block content %}{% endblock %}
     </div>
     <script>

@@ -14,12 +14,6 @@
     <a href="/admin/books" class="btn" style="background:#f0f0f0;">← Back to Books</a>
 </div>
 
-{% if request.query_params.get('uploaded') == 'epub' %}
-<div class="success-msg">EPUB imported — chapters and content are live.</div>
-{% endif %}
-{% if request.query_params.get('error') == 'epub_import_failed' %}
-<div class="error-msg">EPUB import failed. The file may be corrupt or in an unsupported format — nothing was changed.</div>
-{% endif %}
 
 <div class="detail-grid">
 
