@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
+import 'widgets/card_details_sheet.dart';
 import '../../../data/models/payment_model.dart';
 import '../../theme/app_theme.dart';
 
@@ -88,6 +89,21 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
         setState(() => _isProcessing = false);
         _showMessage('Enter your mobile money phone number');
         return;
+      }
+
+      // Paying by card means typing a card in. Asking for it here, before the
+      // charge, is the step a payer expects; it also means cancelling the sheet
+      // never reaches the gateway.
+      if (!method.requiresPhone) {
+        final card = await showCardDetailsSheet(
+          context,
+          amountLabel: '${_selectedPlan!.price.toStringAsFixed(0)} '
+              '${_selectedPlan!.currency}',
+        );
+        if (card == null) {
+          if (mounted) setState(() => _isProcessing = false);
+          return;
+        }
       }
 
       final payment = await repo.checkout(
