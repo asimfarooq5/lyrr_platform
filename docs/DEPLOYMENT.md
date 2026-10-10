@@ -121,7 +121,7 @@ SECRET_KEY=$(openssl rand -hex 32)
 ENCRYPTION_KEY=$(openssl rand -hex 16)
 DEBUG=false
 ENVIRONMENT=production
-CORS_ORIGINS=["https://lyrr.app","https://admin.lyrr.app"]
+CORS_ORIGINS=["http://100.27.229.125:8080"]
 ```
 
 ### 4.2 Build and start the full stack
@@ -199,7 +199,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 flutter run --dart-define=API_BASE_URL=http://YOUR_LAN_IP:8000/api/v1
 
 # Production
-flutter run --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
+flutter run --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1
 ```
 
 ### 6.2 Build a release APK (Android)
@@ -207,7 +207,7 @@ flutter run --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
 ```bash
 cd frontend
 flutter build apk --release \
-  --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
+  --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1
 # Output: build/app/outputs/flutter-apk/app-release.apk
 
 # Or via Makefile (copies to dist/lyrr.apk)
@@ -218,7 +218,7 @@ make build-apk
 
 ```bash
 cd frontend
-flutter build ios --release --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
+flutter build ios --release --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1
 # Then open ios/Runner.xcworkspace in Xcode, set the bundle ID, signing team,
 # and archive → App Store Connect.
 ```
@@ -226,7 +226,7 @@ flutter build ios --release --dart-define=API_BASE_URL=https://api.lyrr.app/api/
 ### 6.4 Build Flutter Web
 
 ```bash
-flutter build web --release --dart-define=API_BASE_URL=https://api.lyrr.app/api/v1
+flutter build web --release --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1
 # Output: build/web/  (served by the `web` Docker container on :8080)
 ```
 

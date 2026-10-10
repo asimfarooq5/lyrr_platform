@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8080",
-        "https://lyrr.app",
-        "https://admin.lyrr.app",
+        # No domain yet: the platform runs on its server address.
+        "http://100.27.229.125:8080",
     ]
     # Flutter's web dev server binds a new random localhost port every run,
     # so a fixed allow-list can never cover it — match any localhost/127.0.0.1
