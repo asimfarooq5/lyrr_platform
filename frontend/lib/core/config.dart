@@ -6,16 +6,22 @@ import 'package:flutter/foundation.dart';
 
 class AppConfig {
   // API Configuration
-  /// Debug/profile builds default to [_devApiBaseUrl], release builds to
-  /// [_prodApiBaseUrl]. Override either at build time:
+  /// Where the app talks to the backend.
   ///
+  /// [API_BASE_URL] overrides everything and is how every build should be
+  /// made (see docs/DEPLOYMENT.md). The release default is the server the
+  /// platform is actually running on — it used to be `api.lyrr.app`, a domain
+  /// that does not exist yet, so any release built without the flag failed
+  /// with "couldn't resolve host" and looked like a broken app.
+  ///
+  /// Debug builds default to a development machine on the LAN:
   ///   flutter run --dart-define=API_BASE_URL=http://192.168.0.228:8000/api/v1
   ///
   /// Physical device on the same WiFi: use this machine's LAN IP.
   /// USB device: run `adb reverse tcp:8000 tcp:8000` and use
   /// http://127.0.0.1:8000/api/v1.
   /// Android emulator: http://10.0.2.2:8000/api/v1
-  static const String _prodApiBaseUrl = 'https://api.lyrr.app/api/v1';
+  static const String _prodApiBaseUrl = 'http://100.27.229.125:8080/api/v1';
   static const String _devApiBaseUrl = String.fromEnvironment(
     'DEV_API_BASE_URL',
     defaultValue: 'http://192.168.0.228:8000/api/v1',
