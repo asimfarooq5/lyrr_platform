@@ -1073,63 +1073,135 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     if (!mounted) return false;
-    final buy = await showModalBottomSheet<bool>(
+    final phoneController = TextEditingController();
+    String method = 'orange_money';
+
+    final confirmed = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _readingBg,
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Listen to this book',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: _readingTextColor)),
-            const SizedBox(height: 8),
-            Text(
-              'Listening is sold one play at a time. Each purchase lets you '
-              'hear the recording once, and when your listens run out the '
-              'downloaded copy leaves your library.',
-              style: TextStyle(fontSize: 13, color: _readingSubtextColor, height: 1.5),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(sheetContext, true),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                child: Text(price == null
-                    ? 'Buy a listen'
-                    : 'Buy a listen — ${price.toStringAsFixed(0)} XAF'),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final needsPhone = method != 'card';
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              24, 20, 24, 28 + MediaQuery.of(sheetContext).viewInsets.bottom),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Listen to this book',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: _readingTextColor)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Listening is sold one play at a time. Each purchase lets '
+                    'you hear the recording once, and when your listens run out '
+                    'the downloaded copy leaves your library.',
+                    style: TextStyle(
+                        fontSize: 13, color: _readingSubtextColor, height: 1.5),
+                  ),
+                  const SizedBox(height: 18),
+
+                  Text('Pay with',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _readingSubtextColor)),
+                  const SizedBox(height: 8),
+                  for (final entry in [
+                    ('orange_money', 'Orange Money', Icons.phone_android),
+                    ('mtn_momo', 'MTN Mobile Money', Icons.phone_android),
+                    ('card', 'Credit / Debit Card', Icons.credit_card),
+                  ])
+                    RadioListTile<String>(
+                      value: entry.$1,
+                      groupValue: method,
+                      onChanged: (v) => setSheetState(() => method = v!),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Row(
+                        children: [
+                          Icon(entry.$3, size: 18, color: _readingSubtextColor),
+                          const SizedBox(width: 8),
+                          Text(entry.$2,
+                              style: TextStyle(
+                                  fontSize: 13, color: _readingTextColor)),
+                        ],
+                      ),
+                    ),
+
+                  if (needsPhone) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      style: TextStyle(color: _readingTextColor, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Mobile money number',
+                        prefixIcon: const Icon(Icons.phone, size: 18),
+                        isDense: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (needsPhone && phoneController.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                                content: Text('Enter your mobile money number')),
+                          );
+                          return;
+                        }
+                        Navigator.pop(sheetContext, true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
+                      child: Text(price == null
+                          ? 'Buy a listen'
+                          : 'Buy a listen — ${price.toStringAsFixed(0)} XAF'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(sheetContext, false),
+                      child: const Text('Not now'),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: () => Navigator.pop(sheetContext, false),
-                child: const Text('Not now'),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
 
-    if (buy != true) return false;
-    return _buyListen(language);
+    final phone = phoneController.text.trim();
+    phoneController.dispose();
+
+    if (confirmed != true) return false;
+    return _buyListen(method, phone.isEmpty ? null : phone);
   }
 
-  Future<bool> _buyListen(String language) async {
+  Future<bool> _buyListen(String method, String? phone) async {
     try {
       final repo = ref.read(paymentsRepositoryProvider);
       final payment = await repo.checkout(
-        method: 'orange_money',
+        method: method,
         itemType: 'lecture',
         bookId: widget.bookId,
+        phone: phone,
       );
       if (payment.isPending) {
         final done = await repo.confirmPayment(payment.id);
