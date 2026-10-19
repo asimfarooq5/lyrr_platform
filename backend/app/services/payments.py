@@ -431,10 +431,13 @@ async def initiate_payment(
     book_id: Optional[str] = None,
     plan_id: Optional[str] = None,
     phone: Optional[str] = None,
+    metadata: Optional[Dict] = None,
 ) -> Payment:
     """Create a checkout and ask the gateway to initiate a charge.
 
-    Returns the Payment with gateway status applied.
+    Returns the Payment with gateway status applied. Metadata is stored at
+    creation, not afterwards: a card charge settles immediately in sandbox, so
+    anything the entitlement needs must already be on the row.
     """
     payment = await create_checkout(
         db,
@@ -444,6 +447,7 @@ async def initiate_payment(
         book_id=book_id,
         plan_id=plan_id,
         customer={"phone": phone} if phone else None,
+        metadata=metadata,
     )
     if not payment.reference:
         raise PaymentError("Failed to create payment")
@@ -469,7 +473,9 @@ async def initiate_payment(
             payment.payment_metadata = {**(payment.payment_metadata or {}), **extra}
         # For card sandbox settlement, auto-complete so checkout works offline.
         if method == METHOD_CARD and status == STATUS_AWAITING and payment.is_auto_confirmable():
-            payment.status = STATUS_COMPLETED
+            # Do NOT set the status first: complete_payment returns early for an
+            # already-completed payment, which skips granting the entitlement —
+            # the reader would pay and receive nothing.
             await complete_payment(db, payment, auto=True)
             return payment
         await db.commit()

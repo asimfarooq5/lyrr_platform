@@ -81,6 +81,18 @@
             <form method="POST" action="/admin/books/{{ book.id }}/audio" enctype="multipart/form-data" class="upload-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="file" name="file" accept="audio/*" required class="file-input">
+                <label class="form-label" for="audio_language">Language of this recording</label>
+                <select name="language" id="audio_language" class="form-input">
+                    {% for code, name in [("en","English"), ("fr","Français"), ("ar","العربية"),
+                                          ("es","Español"), ("pt","Português"), ("de","Deutsch")] %}
+                    <option value="{{ code }}" {% if code == book.language.value %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                    <option value="dialect">Local dialect</option>
+                </select>
+                <p class="form-hint">
+                    A book can be narrated more than once. Each recording is sold separately
+                    and can be listened to in its own language.
+                </p>
                 {% if book.chapters %}
                 <label class="form-label" for="chapter_id">Narrates which chapter?</label>
                 <select name="chapter_id" id="chapter_id" class="form-input">
@@ -179,6 +191,18 @@
                                value="{{ book.price if book.price is not none else '' }}" placeholder="0">
                         <span class="price-suffix">XAF</span>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label>Price per listen <span class="muted">(what one playback of the narration costs)</span></label>
+                    <div class="price-input">
+                        <input type="number" step="0.01" min="0" name="lecture_price"
+                               value="{{ book.lecture_price if book.lecture_price is not none else '' }}" placeholder="0">
+                        <span class="price-suffix">XAF</span>
+                    </div>
+                    <p class="form-hint">
+                        Selling is per listen: buying one adds a single playback, and the reader
+                        hears the recording once. Leave blank if this title is not sold as audio.
+                    </p>
                 </div>
                 <div class="form-group"><label>Category</label>
                     <select name="category_id">

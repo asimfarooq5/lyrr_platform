@@ -90,16 +90,11 @@ async def purchase_listen(
             item_type="lecture",
             book_id=book_id,
             phone=data.phone,
+            metadata={"language": data.language, "kind": "lecture"},
         )
     except payment_service.PaymentError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Which recording the purchase is for; read back when it settles.
-    payment.payment_metadata = {
-        **(payment.payment_metadata or {}),
-        "language": data.language,
-        "kind": "lecture",
-    }
     await db.commit()
     await db.refresh(payment)
     return payment

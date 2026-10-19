@@ -367,6 +367,7 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
                       author: str = Form(""), description: str = Form(""),
                       book_type: str = Form("fiction"),
                       price: str = Form(""),
+                      lecture_price: str = Form(""),
                       category_id: str = Form(""),
                       status: str = Form("draft"),
                       db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
@@ -382,6 +383,8 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
     book.description = description
     book.book_type = book_type
     book.price = _parse_price(price)
+    # What one playback of the narration costs; blank means not sold as audio.
+    book.lecture_price = _parse_price(lecture_price)
     if status in (BookStatus.DRAFT.value, BookStatus.PUBLISHED.value, BookStatus.ARCHIVED.value):
         book.status = BookStatus(status)
         if book.status == BookStatus.PUBLISHED and not book.published_at:
@@ -421,6 +424,7 @@ async def upload_cover(book_id: str, request: Request, file: UploadFile = File(.
 @router.post("/books/{book_id}/audio")
 async def upload_audio(book_id: str, request: Request, file: UploadFile = File(...),
                        chapter_id: str = Form(""),
+                       language: str = Form("en"),
                        db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
@@ -464,6 +468,7 @@ async def upload_audio(book_id: str, request: Request, file: UploadFile = File(.
     media = BookMedia(
         id=str(uuid.uuid4()), book_id=book_id,
         chapter_id=target.id if target else None,
+        language=(language or "en")[:16],
         audio_url=f"/media/audio/{filename}",
         format=os.path.splitext(safe_name)[1].lstrip("."),
         size_bytes=len(content),
