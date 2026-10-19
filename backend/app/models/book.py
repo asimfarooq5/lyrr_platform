@@ -44,7 +44,9 @@ class Book(Base):
     book_type = Column(String(50), default="fiction")  # scholar, fiction, non_fiction, children, reference
     
     # Pricing (pay-per-book)
-    price = Column(Float, nullable=True)  # in settings.PAYMENT_CURRENCY
+    price = Column(Float, nullable=True)
+    # Price of one listen, set by the admin when the book is uploaded.
+    lecture_price = Column(Float, nullable=True)  # in settings.PAYMENT_CURRENCY
 
     # Publishing / catalog metadata (storefront)
     publisher = Column(String(255), nullable=True)
@@ -126,6 +128,10 @@ class BookMedia(Base):
     # Media info
     audio_url = Column(String(500), nullable=False)
     format = Column(String(10), default="mp3")  # mp3, m4a, wav
+    # Language of this recording. The same book can be narrated more than once
+    # — in another language, or in a local dialect — and each recording is sold
+    # and tracked separately.
+    language = Column(String(16), nullable=False, default="en", server_default="en")
     quality = Column(String(10), default="high")  # low, medium, high
     size_bytes = Column(Integer, nullable=True)
     duration = Column(Integer, nullable=True)  # in seconds

@@ -384,8 +384,22 @@ async def create_checkout(
         amount = plan.price
         currency = plan.currency or currency
         description = f"Subscription: {plan.name} ({plan.interval})"
+    elif item_type == "lecture":
+        if not book_id:
+            raise PaymentError("book_id is required for a listen checkout")
+        # One listen of this book's narration. The admin sets the price when the
+        # recording is uploaded.
+        from app.models.book import Book
+        result = await db.execute(select(Book).where(Book.id == book_id))
+        book = result.scalar_one_or_none()
+        if not book:
+            raise PaymentError("Book not found")
+        if not book.lecture_price:
+            raise PaymentError("This book is not sold as a listen")
+        amount = float(book.lecture_price)
+        description = f"Listen: {book.title}"
     else:
-        raise PaymentError("item_type must be 'book' or 'subscription'")
+        raise PaymentError("item_type must be 'book', 'subscription' or 'lecture'")
 
     reference = f"LYRR{uuid.uuid4().hex[:16].upper()}"
 
@@ -489,6 +503,19 @@ async def complete_payment(
         await _grant_book_access(db, payment.user_id, payment.book_id)
     elif payment.item_type == "subscription" and payment.plan_id:
         await _grant_subscription(db, payment.user_id, payment.plan_id)
+    elif payment.item_type == "lecture" and payment.book_id:
+        # A settled listen grants exactly one playback of the recording that was
+        # bought — the language travels with the payment.
+        from app.services import lectures as lecture_service
+        meta = payment.payment_metadata or {}
+        await lecture_service.grant(
+            db,
+            payment.user_id,
+            payment.book_id,
+            meta.get("language", "en"),
+            listens=1,
+            price=payment.amount,
+        )
 
     await db.commit()
     await db.refresh(payment)
