@@ -1009,6 +1009,147 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return wordCount > 15 && _totalDuration.inSeconds < (wordCount / 4).ceil();
   }
 
+  /// Asks the server for one listen before playing.
+  ///
+  /// Narration is sold one listen at a time, so playback is granted rather
+  /// than assumed. When none are left the reader is offered a purchase; the
+  /// server also says whether the offline copy should be withdrawn, which is
+  /// what happens once the last listen is spent.
+  Future<bool> _requestListen() async {
+    final language = (_book?.language.isNotEmpty ?? false) ? _book!.language : 'en';
+    try {
+      final result = await ref
+          .read(booksRepositoryProvider)
+          .startLecture(widget.bookId, language);
+
+      final url = result['audio_url'] as String?;
+      if (url != null && url.isNotEmpty && url != _loadedAudioUrl) {
+        await _audioPlayer.setUrl(url);
+        _loadedAudioUrl = url;
+      }
+
+      if (result['withdraw_download'] == true) {
+        // Last listen spent: the client asked for the downloaded copy to leave
+        // the account with it.
+        try {
+          await ref.read(downloadServiceProvider).deleteDownload(widget.bookId);
+        } catch (_) {
+          // Not fatal — the narration is already no longer playable.
+        }
+      }
+
+      final left = result['listens_left'];
+      if (left is int && left >= 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(left > 0
+                ? '$left listen${left == 1 ? '' : 's'} left'
+                : 'Last listen — the recording has left your account'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      // No listens left is the expected answer, not an error: offer the
+      // purchase instead of showing a failure.
+      final message = e.toString();
+      if (message.contains('402') || message.toLowerCase().contains('no listens')) {
+        return await _offerListenPurchase(language);
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> _offerListenPurchase(String language) async {
+    if (!mounted) return false;
+
+    double? price;
+    try {
+      final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+      price = (info['price_per_listen'] as num?)?.toDouble();
+    } catch (_) {
+      // Fall through with no price; the sheet still explains the model.
+    }
+
+    if (!mounted) return false;
+    final buy = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: _readingBg,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Listen to this book',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: _readingTextColor)),
+            const SizedBox(height: 8),
+            Text(
+              'Listening is sold one play at a time. Each purchase lets you '
+              'hear the recording once, and when your listens run out the '
+              'downloaded copy leaves your library.',
+              style: TextStyle(fontSize: 13, color: _readingSubtextColor, height: 1.5),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(sheetContext, true),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: Text(price == null
+                    ? 'Buy a listen'
+                    : 'Buy a listen — ${price.toStringAsFixed(0)} XAF'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.pop(sheetContext, false),
+                child: const Text('Not now'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (buy != true) return false;
+    return _buyListen(language);
+  }
+
+  Future<bool> _buyListen(String language) async {
+    try {
+      final repo = ref.read(paymentsRepositoryProvider);
+      final payment = await repo.checkout(
+        method: 'orange_money',
+        itemType: 'lecture',
+        bookId: widget.bookId,
+      );
+      if (payment.isPending) {
+        final done = await repo.confirmPayment(payment.id);
+        if (!done.isCompleted) return false;
+      }
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Listen added — press play')),
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not buy a listen: $e')),
+        );
+      }
+      return false;
+    }
+  }
+
   Future<void> _togglePlayPause() async {
     try {
       if (_isPlaying) {
@@ -1023,6 +1164,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           await _playback.toggle();
           return;
         }
+        // Narration is paid for per play, so ask before it sounds.
+        if (!await _requestListen()) return;
         await _audioPlayer.play();
       }
     } catch (e) {

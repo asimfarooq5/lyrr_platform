@@ -217,6 +217,26 @@ class BooksRepository {
     await apiClient.post(ApiEndpoints.bookPurchase(bookId));
   }
 
+  /// The recordings this book has, their price, and how many listens the
+  /// reader still holds.
+  Future<Map<String, dynamic>> lectureInfo(String bookId) async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.bookLectures(bookId),
+    );
+    if (response.success && response.data != null) return response.data!;
+    throw Exception(response.error ?? 'Could not load narration');
+  }
+
+  /// Spend one listen and get the clip to play. Throws when none are left.
+  Future<Map<String, dynamic>> startLecture(String bookId, String language) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.bookLectureStart(bookId),
+      body: {'language': language},
+    );
+    if (response.success && response.data != null) return response.data!;
+    throw Exception(response.error ?? 'No listens left');
+  }
+
   Future<void> downloadBook(String bookId) async {
     await apiClient.post(ApiEndpoints.bookDownload(bookId));
   }

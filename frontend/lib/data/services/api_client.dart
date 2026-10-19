@@ -395,6 +395,10 @@ class ApiEndpoints {
   static String bookLicense(String id) => '/books/$id/license';
   static String bookPurchase(String id) => '/books/$id/purchase';
   static String bookDownload(String id) => '/books/$id/download';
+  // Narration is sold per listen.
+  static String bookLectures(String id) => '/books/$id/lectures';
+  static String bookLecturePurchase(String id) => '/books/$id/lectures/purchase';
+  static String bookLectureStart(String id) => '/books/$id/lectures/start';
   static const String authors = '/books/authors';
 
   // User Data
