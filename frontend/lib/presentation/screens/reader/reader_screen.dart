@@ -95,6 +95,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
   String? _audioError;
   bool _noAudio = false; // book ships without narration — narrate on-device
+  /// Narration sold per listen: how many the reader holds, and what one costs.
+  /// Null until asked; a book with no recording stays null.
+  int? _listensLeft;
+  double? _listenPrice;
   String? _loadedAudioUrl; // clip currently loaded into the player
 
   /// Shortlist size for the narration-voice picker, and the names those
@@ -451,6 +455,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           for (final c in _chapters) ...(c.syncData ?? const <SyncWordModel>[]),
         ];
       }
+      // Whether this book's narration is sold, and whether the reader holds
+      // any — shown before the play button so "read-only" is never a surprise.
+      try {
+        final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+        final recordings = (info['recordings'] as List?) ?? const [];
+        if (recordings.isNotEmpty) {
+          _listenPrice = (info['price_per_listen'] as num?)?.toDouble();
+          _listensLeft = recordings.fold<int>(
+              0, (sum, r) => sum + ((r['listens_left'] as num?)?.toInt() ?? 0));
+        }
+      } catch (_) {
+        // Narration details are optional; reading works without them.
+      }
+
       _playback.setAudioSync(_syncData
           .map((s) => AudioSyncEntry(id: s.id, start: s.start, end: s.end))
           .toList());
@@ -998,16 +1016,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  // Demo/seed books ship a short placeholder tone instead of real narration
-  // (generating real audio needs a TTS pipeline the demo server has no disk
-  // space for right now). A chapter with real text but a suspiciously short
-  // clip is that placeholder, not narration - so the main play button reads
-  // it aloud on-device instead, rather than surfacing a beep to the user.
-  bool get _isPlaceholderAudio {
-    if (_totalDuration <= Duration.zero || _chapters.isEmpty) return false;
-    final wordCount = _chapters[_currentChapterIndex].allWords.length;
-    return wordCount > 15 && _totalDuration.inSeconds < (wordCount / 4).ceil();
-  }
+  // This used to treat a short clip on a long chapter as a demo tone and fall
+  // back to on-device narration. Narration is now a paid product the admin
+  // uploads, and those placeholder tones are gone from the catalogue — so the
+  // rule only served to hide real recordings (a 12-second sample on a long
+  // book read aloud with the device voice instead of playing, and never asked
+  // for the listen it costs). A book with audio plays it.
+  bool get _isPlaceholderAudio => false;
 
   /// Asks the server for one listen before playing.
   ///
@@ -1039,6 +1054,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
 
       final left = result['listens_left'];
+      if (left is int) _safeSetState(() => _listensLeft = left);
       if (left is int && left >= 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1208,6 +1224,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (!done.isCompleted) return false;
       }
       if (!mounted) return false;
+      try {
+        final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+        final recordings = (info['recordings'] as List?) ?? const [];
+        _safeSetState(() {
+          _listenPrice = (info['price_per_listen'] as num?)?.toDouble() ?? _listenPrice;
+          _listensLeft = recordings.fold<int>(
+              0, (sum, r) => sum + ((r['listens_left'] as num?)?.toInt() ?? 0));
+        });
+      } catch (_) {
+        // The credit exists; the banner can catch up on the next open.
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Listen added — press play')),
       );
@@ -1563,7 +1590,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           children: [
             // Top bar — kept visible so back / chapter info are always at hand.
             _buildTopBar(),
-            
+
+            // Say up front what the reader has: reading is open to everyone,
+            // hearing the recording is bought one play at a time. Finding that
+            // out by pressing play and being refused is worse.
+            _buildAccessNotice(),
+
             // Reading content with Kindle tap zones
             Expanded(
               child: GestureDetector(
@@ -1614,6 +1646,53 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             _buildMiniProgressBar(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// States the reading terms before the reader presses anything.
+  ///
+  /// Reading the text is open. Hearing the recording is not: it is sold one
+  /// play at a time, so the page says which of the two this reader has.
+  Widget _buildAccessNotice() {
+    // Nothing to say for a book with no recording, or while the details are
+    // still being fetched.
+    if (_listensLeft == null) return const SizedBox.shrink();
+
+    final left = _listensLeft!;
+    final price = _listenPrice;
+    final hasListen = left > 0;
+
+    final text = hasListen
+        ? 'Reading is free · $left listen${left == 1 ? '' : 's'} left for this recording'
+        : 'Read-only access · '
+            '${price == null ? 'buy a listen to hear this book' : 'a listen costs ${price.toStringAsFixed(0)} XAF'}';
+
+    final colour = hasListen ? _readingSubtextColor : _highlightColor;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      color: colour.withValues(alpha: 0.10),
+      child: Row(
+        children: [
+          Icon(
+            hasListen ? Icons.headphones : Icons.menu_book_outlined,
+            size: 15,
+            color: colour,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: colour,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -292,6 +292,29 @@ class ApiClient {
   }
 
   /// Handle HTTP response
+  /// FastAPI puts a validation/refusal payload in `detail`, which is not
+  /// always a string — a 402 for "no listens left" carries a map with the
+  /// price and language. Reading it as a String threw, and the reader saw a
+  /// type error instead of being offered the purchase.
+  static String _detailText(dynamic detail, {String fallback = 'Request failed'}) {
+    if (detail == null) return fallback;
+    if (detail is String) return detail;
+    if (detail is Map) {
+      final message = detail['message'] ?? detail['detail'];
+      if (message is String && message.isNotEmpty) return message;
+      return detail.toString();
+    }
+    if (detail is List && detail.isNotEmpty) {
+      final first = detail.first;
+      if (first is Map) {
+        final msg = first['message'] ?? first['msg'];
+        if (msg is String) return msg;
+      }
+      return detail.toString();
+    }
+    return detail.toString();
+  }
+
   ApiResponse<T> _handleResponse<T>(
     http.Response response,
     T Function(dynamic)? parser,
@@ -311,18 +334,18 @@ class ApiClient {
       return ApiResponse.success(parsedData, statusCode: statusCode);
     } else if (statusCode == 401) {
       final error = _parseError(response.body);
-      final msg = error['detail'] ?? error['message'] ?? 'Session expired. Please login again.';
+      final msg = _detailText(error['detail'] ?? error['message'], fallback: 'Session expired. Please login again.');
       throw ApiException(msg, statusCode: 401);
     } else if (statusCode == 403) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Access denied',
+        _detailText(error['detail'] ?? error['message'], fallback: 'Access denied'),
         statusCode: 403,
       );
     } else if (statusCode == 404) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Resource not found',
+        _detailText(error['detail'] ?? error['message'], fallback: 'Resource not found'),
         statusCode: 404,
       );
     } else if (statusCode == 422) {
@@ -338,20 +361,20 @@ class ApiClient {
         }).join('; ');
         msg = 'Validation failed: $fieldErrors';
       } else {
-        msg = error['detail'] ?? 'Invalid data submitted';
+        msg = _detailText(detail, fallback: 'Invalid data submitted');
       }
       throw ApiException(msg, statusCode: 422, errors: error['errors']);
     } else if (statusCode >= 400 && statusCode < 500) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Request failed',
+        _detailText(error['detail'] ?? error['message']),
         statusCode: statusCode,
         errors: error['errors'],
       );
     } else if (statusCode >= 500) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? 'Server error. Please try again later.',
+        _detailText(error['detail'], fallback: 'Server error. Please try again later.'),
         statusCode: statusCode,
       );
     } else {
