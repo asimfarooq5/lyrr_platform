@@ -116,19 +116,6 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
   /// Returns true when the book ends up in the reader's library.
   Future<bool> _purchaseBook(BookModel book) async {
     try {
-      // Free books skip checkout entirely and are granted immediately.
-      if (book.isFree) {
-        final booksRepo = ref.read(booksRepositoryProvider);
-        await booksRepo.purchaseBook(book.id);
-        if (!mounted) return false;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${book.title} added to your library')),
-        );
-        // Reload so the card and detail sheet stop offering it.
-        unawaited(_loadBooks());
-        return true;
-      }
-
       final repo = ref.read(paymentsRepositoryProvider);
 
       // Show payment method sheet (pay-per-book, FRS §10)
@@ -185,7 +172,10 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Buy "${book.title}" — ${book.formattedPrice}',
+                    Text(
+                        book.formattedPrice.isEmpty
+                            ? 'Add "${book.title}" to your library'
+                            : 'Buy "${book.title}" — ${book.formattedPrice}',
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 8),
                     Text('Choose payment method',
@@ -492,12 +482,6 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
               // sheet is up sits behind it and never gets read.
               if (sheetContext.mounted) Navigator.pop(sheetContext);
             },
-            onReadSample: () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(
-                builder: (_) => ReaderScreen(bookId: book.id),
-              ));
-            },
           ),
         ),
       ),
@@ -675,11 +659,11 @@ class _PriceTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      book.isFree ? 'Free' : book.formattedPrice,
-      style: TextStyle(
+      book.formattedPrice,
+      style: const TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w700,
-        color: book.isFree ? AppColors.secondary : AppColors.primary,
+        color: AppColors.primary,
       ),
     );
   }
@@ -744,7 +728,6 @@ class _BookDetailsSheet extends StatelessWidget {
   final BookModel book;
   final ScrollController scrollController;
   final VoidCallback onPurchase;
-  final VoidCallback? onReadSample;
   /// Overrides book.isPurchased so the sheet reflects a purchase made while it
   /// is open, without waiting for the list to reload.
   final bool? isPurchasedOverride;
@@ -753,7 +736,6 @@ class _BookDetailsSheet extends StatelessWidget {
     required this.book,
     required this.scrollController,
     required this.onPurchase,
-    this.onReadSample,
     this.isPurchasedOverride,
   });
 
@@ -895,23 +877,14 @@ class _BookDetailsSheet extends StatelessWidget {
             ),
           ),
           
-          // Purchase / sample buttons (Store, FRS §10/§11)
+          // Purchase button (Store, FRS §10). Every book is added to the
+          // library through the payment flow — there is no free or sample path.
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             child: SafeArea(
               top: false,
               child: Column(
                 children: [
-                  if (!book.isPurchased && !book.isFree && onReadSample != null) ...[
-                    OutlinedButton(
-                      onPressed: onReadSample,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 48),
-                      ),
-                      child: const Text('Read Sample'),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
                   ElevatedButton(
                     onPressed: _owned ? null : onPurchase,
                     style: ElevatedButton.styleFrom(
@@ -920,9 +893,9 @@ class _BookDetailsSheet extends StatelessWidget {
                     child: Text(
                       _owned
                           ? 'In Your Library'
-                          : book.isFree
-                              ? 'Add to Library — Free'
-                              : 'Buy Now — ${book.formattedPrice}',
+                          : book.formattedPrice.isEmpty
+                              ? 'Add to Library'
+                              : 'Add to Library — ${book.formattedPrice}',
                     ),
                   ),
                 ],

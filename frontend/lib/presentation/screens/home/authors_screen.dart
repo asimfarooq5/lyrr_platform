@@ -162,9 +162,21 @@ class _AuthorBooksScreenState extends ConsumerState<AuthorBooksScreen> {
                   itemBuilder: (_, i) {
                     final book = _books[i];
                     return GestureDetector(
-                      onTap: () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => ReaderScreen(bookId: book.id),
-                      )),
+                      onTap: () {
+                        // Only library books can be read; send the reader to the
+                        // Store to add the rest.
+                        if (!book.isPurchased) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text(
+                              'Add this book to your library from the Store to read it.',
+                            ),
+                          ));
+                          return;
+                        }
+                        Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => ReaderScreen(bookId: book.id),
+                        ));
+                      },
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

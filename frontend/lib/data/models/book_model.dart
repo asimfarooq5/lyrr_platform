@@ -33,12 +33,14 @@ class BookModel {
     this.progressPercent, this.lastReadAt, this.bookType, this.price,
   });
 
-  bool get isFree => price == null || price == 0;
   /// Prices are in Central African francs, the same currency the store's
   /// subscriptions are priced in. Shown without the currency a bare "2500.00"
   /// tells the reader nothing about what they are being asked to pay.
-  String get formattedPrice =>
-      isFree ? 'Free' : '${_thousands(price!.round())} XAF';
+  String get formattedPrice {
+    final p = price;
+    if (p == null) return '';
+    return '${_thousands(p.round())} XAF';
+  }
 
   static String _thousands(int value) {
     final digits = value.toString();

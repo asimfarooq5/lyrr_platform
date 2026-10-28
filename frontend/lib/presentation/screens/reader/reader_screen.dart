@@ -92,7 +92,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   double _voicePitch = 1.0; // FRS §7: voice tone adjustment
   double _volume = 1.0; // FRS §7: volume control
   bool _autoScroll = true;
-  bool _isPreview = false; // FRS §11: free sample for unpurchased paid books
+  /// The read-only notice is raised once per open, after the book loads.
+  bool _readOnlyNoticeShown = false;
   String? _audioError;
   bool _noAudio = false; // book ships without narration — narrate on-device
   /// Narration sold per listen: how many the reader holds, and what one costs.
@@ -323,8 +324,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (!mounted) return;
     if (_currentChapterIndex < _chapters.length - 1) {
       _goToNextChapter();
-    } else if (_isPreview) {
-      _showSampleEndDialog();
     }
   }
 
@@ -385,7 +384,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     try {
       final booksRepo = ref.read(booksRepositoryProvider);
-      final userDataRepo = ref.read(userDataRepositoryProvider);
 
       // Offline-first: read a downloaded copy straight from the local database.
       // Going to the network for a title already on the device made opening it
@@ -401,6 +399,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           if (localChapters.isNotEmpty) {
             _book = localBook;
             _chapters = localChapters;
+            // A downloaded copy only exists because the book was added to the
+            // library, so it is owned by definition — no gate needed offline.
             // Timings travel with the chapters, so no separate sync fetch.
             _syncData = [
               for (final c in localChapters) ...(c.syncData ?? const <SyncWordModel>[]),
@@ -416,9 +416,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           _book = BookModel.fromJson(bookData);
         }
 
-        final content = await booksRepo.getBookContentWithPreviewFlag(widget.bookId);
-        _chapters = content.chapters.map((c) => ChapterModel.fromJson(c)).toList();
-        _isPreview = content.isPreview;
+        // A book only opens once it is in the reader's library. There is no
+        // free or sample path any more.
+        if (!await _isInLibrary()) {
+          _safeSetState(() => _isLoading = false);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _showNotInLibraryDialog());
+          return;
+        }
+
+        final content = await booksRepo.getBookContent(widget.bookId);
+        _chapters = content.map((c) => ChapterModel.fromJson(c)).toList();
 
         // The content endpoint carries text and timings; the narration URL lives
         // on the book detail (it is per chapter for a multi-file audiobook), so
@@ -469,14 +476,72 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         // Narration details are optional; reading works without them.
       }
 
+      // First paint: the text is ready — show it now. The narration clip and
+      // the reader's saved position/bookmarks fold in shortly after (see
+      // _loadAudioAndUserData) and correct the narration mode, without holding
+      // the page back.
       _playback.setAudioSync(_syncData
           .map((s) => AudioSyncEntry(id: s.id, start: s.start, end: s.end))
           .toList());
+      _rebuildChapterContent();
+      _safeSetState(() {
+        _isLoading = false;
+      });
 
-      // Bookmarks, notes and position come from the local copy for a downloaded
-      // book. The payloads are tiny, but as three round-trips they were most of
-      // what remained: over a second of the 1.5s it took to open a book that
-      // was already on the device.
+      // State the terms once, on every open: the text is readable, the
+      // recording is not — it is bought one play at a time.
+      if (!_readOnlyNoticeShown) {
+        _readOnlyNoticeShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showReadOnlyNotice());
+      }
+
+      unawaited(_loadAudioAndUserData(loadedLocally));
+
+      _progressTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        _saveProgress();
+        _trackReadingSpeed();
+      });
+    } catch (e) {
+      _safeSetState(() {
+        _error = 'Failed to load book: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// Whether this book is in the reader's library. The book payload's own
+  /// `is_purchased` flag is not always populated, so the library list — the
+  /// same source the Library tab uses — is the source of truth. A network
+  /// hiccup must not lock a reader out of a book they own, so an error is
+  /// treated as owned (narration still needs a listen to play).
+  Future<bool> _isInLibrary() async {
+    if (_book?.isPurchased ?? false) return true;
+    try {
+      final items = await ref.read(userDataRepositoryProvider).getLibrary();
+      return items.any(
+        (item) => item is Map && item['id']?.toString() == widget.bookId,
+      );
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Loads the narration clip and the reader's bookmarks/notes/position after
+  /// the text is already on screen, then folds them in.
+  Future<void> _loadAudioAndUserData(bool loadedLocally) async {
+    final userDataRepo = ref.read(userDataRepositoryProvider);
+
+    // A stuck platform channel (e.g. no audio backend on this platform) must
+    // never take the reader down; give audio a bounded window and move on.
+    try {
+      await _loadAudio().timeout(const Duration(seconds: 8));
+    } catch (e) {
+      if (mounted) _safeSetState(() => _audioError = 'Audio unavailable: $e');
+    }
+
+    // A downloaded book keeps its bookmarks, notes and position on device; the
+    // network copy fetches them. Either way a failure here is not fatal.
+    try {
       if (loadedLocally && !kIsWeb) {
         final db = ref.read(databaseProvider);
         final user = ref.read(currentUserProvider);
@@ -495,52 +560,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
         final progressData = await userDataRepo.getProgress(widget.bookId);
         if (progressData != null) {
-          // Restore the saved position silently and continue reading — no
-          // confirmation dialog interrupting the flow.
           _progress = ReadingProgressModel.fromJson(progressData);
         }
       }
-
-      // A stuck platform channel (e.g. no audio backend on this platform)
-      // must never block the book itself from opening - text still needs
-      // to load. Give audio a bounded window and move on either way.
-      try {
-        await _loadAudio().timeout(const Duration(seconds: 8));
-      } catch (e) {
-        if (mounted) _safeSetState(() => _audioError = 'Audio unavailable: $e');
-      }
-
-      // Now that audio is resolved we know whether this book narrates
-      // on-device, so the chapter index can be built with the right mode.
-      // The saved position is restored into it, but not scrolled to yet —
-      // the reader gets a say via the resume prompt first.
-      _rebuildChapterContent(restorePosition: _progress?.wordId != null);
-
-      _safeSetState(() {
-        _isLoading = false;
-      });
-
-      // On-device narration warms up in the background; the text is readable
-      // immediately either way.
-      _playback.language = TtsService.languageCodeFor(_book?.language);
-      unawaited(_playback.initializeTts().then((_) async {
-        // initializeTts resets the engine to its own default rate, which reads
-        // as rushed; apply the fixed pace so narration sounds the same every
-        // time a book is opened.
-        await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
-        if (mounted) _onPlaybackChanged();
-      }));
-
-      _progressTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-        _saveProgress();
-        _trackReadingSpeed();
-      });
-    } catch (e) {
-      _safeSetState(() {
-        _error = 'Failed to load book: $e';
-        _isLoading = false;
-      });
+    } catch (_) {
+      // Bookmarks and notes are supplementary; reading continues without them.
     }
+
+    if (!mounted) return;
+
+    // Narration mode and the saved position are both known now — rebuild the
+    // chapter index with the right mode and restore the reading position.
+    _rebuildChapterContent(restorePosition: _progress?.wordId != null);
+
+    // On-device narration warms up in the background.
+    _playback.language = TtsService.languageCodeFor(_book?.language);
+    unawaited(_playback.initializeTts().then((_) async {
+      // initializeTts resets the engine to its own default rate, which reads as
+      // rushed; apply the fixed pace so narration sounds the same every time.
+      await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
+      if (mounted) _onPlaybackChanged();
+    }));
   }
 
   void _trackReadingSpeed() {
@@ -590,10 +630,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return '$base$path';
   }
 
+  /// Loads a remote clip into the player with the Bearer token the media server
+  /// expects. just_audio sends no Authorization header on its own, so a plain
+  /// setUrl against an auth-protected URL loads but fails on play with a bare
+  /// "source error".
+  Future<void> _setAudioUrl(String url) async {
+    final token = await ref.read(authServiceProvider).getAccessToken();
+    await _audioPlayer.setAudioSource(
+      AudioSource.uri(
+        Uri.parse(url),
+        headers: token == null ? null : {'Authorization': 'Bearer $token'},
+      ),
+    );
+  }
+
   Future<void> _loadAudio() async {
     _safeSetState(() {
       _audioError = null;
-      _noAudio = false;
     });
     try {
       // Ask the server what narration this book actually has before trusting
@@ -641,7 +694,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       // fall through to the licence below.
       final chapterAudio = _currentChapterAudio;
       if (chapterAudio != null) {
-        await _audioPlayer.setUrl(chapterAudio);
+        await _setAudioUrl(chapterAudio);
         _loadedAudioUrl = chapterAudio;
         return;
       }
@@ -652,9 +705,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _safeSetState(() => _noAudio = true);
         return;
       }
-      await _audioPlayer.setUrl(license!.downloadUrl!);
+      await _setAudioUrl(license!.downloadUrl!);
       _loadedAudioUrl = license.downloadUrl;
     } catch (e) {
+      _loadedAudioUrl = null;
       if (mounted) _safeSetState(() => _audioError = 'Could not load audio: $e');
     }
   }
@@ -982,34 +1036,55 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _goToNextChapter() {
     if (_currentChapterIndex < _chapters.length - 1) {
       _openChapter(_currentChapterIndex + 1);
-    } else if (_isPreview) {
-      _showSampleEndDialog();
     }
   }
 
-  /// Free sample (FRS §11) ran out — offer to buy the full book.
-  void _showSampleEndDialog() {
-    showDialog(
+  /// A book that is not in the reader's library cannot be read. The reader is
+  /// sent back to the Store to add it.
+  void _showNotInLibraryDialog() {
+    if (!mounted) return;
+    showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('End of sample'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add this book to your library'),
         content: Text(
-          'You\'ve reached the end of the free sample of "${_book?.title ?? 'this book'}". '
-          'Buy the full book to keep reading.',
+          '"${_book?.title ?? 'This book'}" isn\'t in your library yet. '
+          'Add it from the Store to read it.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Not now'),
-          ),
           ElevatedButton(
             onPressed: () {
+              Navigator.pop(dialogContext);
               Navigator.pop(context);
-              Navigator.pop(context); // back to Store to complete checkout
             },
-            child: Text(_book != null && !_book!.isFree
-                ? 'Buy Now — ${_book!.formattedPrice}'
-                : 'Buy Now'),
+            child: const Text('Back to Store'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Stated on every open so the terms are never a surprise: the text is
+  /// readable, and hearing the recording is bought one play at a time.
+  void _showReadOnlyNotice() {
+    if (!mounted) return;
+    final price = _listenPrice;
+    final cost = price == null
+        ? ''
+        : ' A listen costs ${price.toStringAsFixed(0)} XAF.';
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Read-only access'),
+        content: Text(
+          'You can read "${_book?.title ?? 'this book'}" in full. '
+          'Listening to the recording is sold one play at a time — '
+          'buy a listen to hear it.$cost',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
           ),
         ],
       ),
@@ -1038,8 +1113,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           .startLecture(widget.bookId, language);
 
       final url = result['audio_url'] as String?;
-      if (url != null && url.isNotEmpty && url != _loadedAudioUrl) {
-        await _audioPlayer.setUrl(url);
+      if (url != null && url.isNotEmpty) {
+        // Always (re)load the clip the server just authorised for this listen.
+        // A source loaded earlier (from a cached licence, say) can be stale and
+        // fail on play with a bare "source error".
+        await _setAudioUrl(url);
         _loadedAudioUrl = url;
       }
 
@@ -1269,6 +1347,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     } catch (e) {
       if (!mounted) return;
+      // Drop the poisoned source and the cached licence so the next press
+      // fetches a fresh clip instead of replaying the one that just failed.
+      _loadedAudioUrl = null;
+      ref.read(drmServiceProvider).revokeLicense(widget.bookId);
       // The inline banner below the text (with its own Retry/dismiss) is
       // the single source of truth for audio errors - a second SnackBar
       // saying the same thing just felt like the error was stuck twice.
@@ -1652,23 +1734,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// States the reading terms before the reader presses anything.
   ///
-  /// Reading the text is open. Hearing the recording is not: it is sold one
-  /// play at a time, so the page says which of the two this reader has.
+  /// The book is read-only: the text is open to read, hearing the recording is
+  /// sold one play at a time. The strip is always present so the terms are
+  /// never hidden behind a play press.
   Widget _buildAccessNotice() {
-    // Nothing to say for a book with no recording, or while the details are
-    // still being fetched.
-    if (_listensLeft == null) return const SizedBox.shrink();
-
-    final left = _listensLeft!;
+    final left = _listensLeft;
     final price = _listenPrice;
-    final hasListen = left > 0;
 
-    final text = hasListen
-        ? 'Reading is free · $left listen${left == 1 ? '' : 's'} left for this recording'
-        : 'Read-only access · '
-            '${price == null ? 'buy a listen to hear this book' : 'a listen costs ${price.toStringAsFixed(0)} XAF'}';
+    final String text;
+    if (left == null) {
+      text = 'Read-only access · no recording for this book yet';
+    } else if (left > 0) {
+      text = 'Read-only access · '
+          '$left listen${left == 1 ? '' : 's'} left for this recording';
+    } else {
+      text = 'Read-only access · '
+          '${price == null ? 'buy a listen to hear this book' : 'a listen costs ${price.toStringAsFixed(0)} XAF'}';
+    }
 
-    final colour = hasListen ? _readingSubtextColor : _highlightColor;
+    const colour = AppColors.primary;
 
     return Container(
       width: double.infinity,
@@ -1676,8 +1760,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       color: colour.withValues(alpha: 0.10),
       child: Row(
         children: [
-          Icon(
-            hasListen ? Icons.headphones : Icons.menu_book_outlined,
+          const Icon(
+            Icons.menu_book_outlined,
             size: 15,
             color: colour,
           ),
@@ -1732,18 +1816,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (_isPreview)
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text('SAMPLE', style: TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary,
-                  )),
-                ),
               // Table of Contents
               IconButton(
                 icon: const Icon(Icons.list),

@@ -156,7 +156,7 @@ class LocalDatabase extends _$LocalDatabase {
   LocalDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -166,8 +166,32 @@ class LocalDatabase extends _$LocalDatabase {
         await m.addColumn(books, books.localAudioPath);
         await m.addColumn(books, books.localCoverPath);
       }
+      if (from < 3) {
+        // Some installs were stamped as v2 before the offline columns existed,
+        // so the v1->v2 step above never ran for them and every read of
+        // localAudioPath threw. Add whichever columns are still missing so
+        // those devices repair themselves instead of needing a reinstall.
+        await _addColumnIfMissing(m, books, books.localAudioPath);
+        await _addColumnIfMissing(m, books, books.localCoverPath);
+      }
     },
   );
+
+  /// Adds [column] to [table] only when the live schema does not have it yet,
+  /// so a migration can repair a database that was versioned without it.
+  Future<void> _addColumnIfMissing(
+    Migrator m,
+    TableInfo table,
+    GeneratedColumn column,
+  ) async {
+    final rows = await m.database
+        .customSelect('PRAGMA table_info(${table.actualTableName})')
+        .get();
+    final present = rows.any(
+      (row) => row.data['name'] == column.name,
+    );
+    if (!present) await m.addColumn(table, column);
+  }
 
   // Book operations
   Future<List<BookModel>> getAllBooks() async {
