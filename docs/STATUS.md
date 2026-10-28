@@ -64,6 +64,35 @@ does not offer.
 
 ---
 
+## Production configuration
+
+The server runs with the production gates **on**:
+
+```
+ENVIRONMENT                 production
+DEBUG                       false
+MEDIA_AUTH_ENABLED          true          narration needs a token
+BYPASS_LIBRARY_PERMISSIONS  false         entitlements enforced
+DEV_EXPOSE_TOKENS           false         no tokens in responses
+CORS_ORIGINS                ["http://100.27.229.125:8080"]
+```
+
+Verified against the live server: an anonymous request is refused, the admin
+portal redirects to login, and narration is **401 without a token, 200 with
+one** — so the app still plays while nothing is downloadable for free.
+
+`docker-compose.yml` reads the **root** `.env`, not `backend/.env`. Changing
+the backend one alone does nothing to the running container; use the root file
+and `docker compose up -d --force-recreate api`.
+
+Containers are `restart: unless-stopped`, so they come back after a reboot.
+A nightly dump runs at 03:15 (`/home/ubuntu/lyrr-backup.sh`, seven kept) into
+`/home/ubuntu/backups`.
+
+Disk is at 98% — new images or large uploads will need the volume resized.
+
+---
+
 ## Still open
 
 | Item | State |
