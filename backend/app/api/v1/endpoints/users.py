@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, delete, func as sa_func
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
@@ -201,7 +201,7 @@ async def update_bookmark(
     if update.color is not None:
         bookmark.color = update.color.value
     
-    bookmark.updated_at = datetime.utcnow()
+    bookmark.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(bookmark)
     
@@ -295,7 +295,7 @@ async def update_note(
         raise HTTPException(status_code=404, detail="Note not found")
     
     note.content = update.content
-    note.updated_at = datetime.utcnow()
+    note.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(note)
     
@@ -407,8 +407,9 @@ async def update_progress(
         target.word_id = progress.word_id
         target.position_seconds = progress.position_seconds
         target.progress_percent = progress.progress_percent
-        target.last_read_at = datetime.utcnow()
-        target.last_synced_at = datetime.utcnow()
+        now = datetime.now(timezone.utc)
+        target.last_read_at = now
+        target.last_synced_at = now
 
     existing = (await db.execute(
         select(ReadingProgress).where(
@@ -436,7 +437,7 @@ async def update_progress(
         position_seconds=progress.position_seconds,
         progress_percent=progress.progress_percent,
         device_id=progress.device_id,
-        last_synced_at=datetime.utcnow(),
+        last_synced_at=datetime.now(timezone.utc),
     )
     db.add(new_progress)
     await _touch_reading_session(db, current_user.id, progress.book_id)

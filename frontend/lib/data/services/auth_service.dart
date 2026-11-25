@@ -295,13 +295,36 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Request password reset
-  Future<ApiResponse<void>> forgotPassword(String email) async {
+  Future<ApiResponse<dynamic>> forgotPassword(String email) async {
     try {
       final client = ApiClient(authService: this);
       
       final response = await client.post(
         ApiEndpoints.forgotPassword,
         body: {'email': email},
+        requiresAuth: false,
+      );
+
+      return response;
+    } catch (e) {
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  /// Complete password reset with token
+  Future<ApiResponse<void>> resetPassword({
+    required String token,
+    required String newPassword,
+  }) async {
+    try {
+      final client = ApiClient(authService: this);
+      
+      final response = await client.post(
+        ApiEndpoints.resetPassword,
+        body: {
+          'token': token,
+          'new_password': newPassword,
+        },
         requiresAuth: false,
       );
 

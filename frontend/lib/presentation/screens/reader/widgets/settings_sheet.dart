@@ -285,7 +285,7 @@ class _PageTab extends StatelessWidget {
             value: autoScroll,
             onChanged: onAutoScrollChanged,
             contentPadding: EdgeInsets.zero,
-            activeColor: AppColors.primary,
+            activeThumbColor: AppColors.primary,
           ),
         ],
       ),

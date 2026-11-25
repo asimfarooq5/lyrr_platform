@@ -1,5 +1,4 @@
 /// User Data Models - all fromJson null-safe
-import 'dart:convert';
 
 String _safeDate(dynamic val) {
   if (val == null) return DateTime.now().toIso8601String();

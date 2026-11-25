@@ -235,11 +235,10 @@ class LibraryTabState extends ConsumerState<LibraryTab> {
 
   Widget _buildGroupedView() {
     final Map<String, List<BookModel>> groups;
-    final String label;
     switch (_viewMode) {
-      case 'type': groups = _byType; label = 'Type'; break;
-      case 'author': groups = _byAuthor; label = 'Author'; break;
-      case 'language': groups = _byLanguage; label = 'Language'; break;
+      case 'type': groups = _byType; break;
+      case 'author': groups = _byAuthor; break;
+      case 'language': groups = _byLanguage; break;
       default: return const SizedBox();
     }
 

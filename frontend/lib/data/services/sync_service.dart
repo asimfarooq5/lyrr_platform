@@ -144,8 +144,31 @@ class SyncService {
       'client_timestamp': (p.lastReadAt).toIso8601String(),
     }).toList();
 
+    // Get queued delete operations
+    final queuedItems = await _db.getPendingSyncItems(userId);
+    final deleteItems = <Map<String, dynamic>>[];
+    final deleteQueueIds = <String, String>{}; // entityId -> queueId
+
+    for (final q in queuedItems) {
+      if (q.operation == 'delete') {
+        Map<String, dynamic> data = {};
+        try {
+          data = jsonDecode(q.dataJson) as Map<String, dynamic>;
+        } catch (_) {}
+        deleteItems.add({
+          'entity_type': q.entityType,
+          'operation': 'delete',
+          'client_entity_id': q.entityId,
+          'server_entity_id': data['server_entity_id'],
+          'data': data,
+          'client_timestamp': q.createdAt.toIso8601String(),
+        });
+        deleteQueueIds[q.entityId] = q.id;
+      }
+    }
+
     // Combine all items
-    final allItems = [...bookmarkItems, ...noteItems, ...progressItems];
+    final allItems = [...bookmarkItems, ...noteItems, ...progressItems, ...deleteItems];
 
     if (allItems.isEmpty) return;
 
@@ -187,6 +210,10 @@ class SyncService {
         }
         if (note != null) {
           await _db.updateNoteSyncStatus(note.id, true);
+        }
+
+        if (deleteQueueIds.containsKey(clientId)) {
+          await _db.removeFromSyncQueue(deleteQueueIds[clientId]!);
         }
       }
 
@@ -364,6 +391,38 @@ class SyncService {
     return note;
   }
 
+  /// Delete bookmark with sync tracking
+  Future<void> deleteBookmark(String bookmarkId, {String? serverEntityId}) async {
+    final userId = _authService.currentUser?.id;
+    await _db.deleteBookmark(bookmarkId);
+    if (userId != null) {
+      await _db.addToSyncQueue(
+        userId: userId,
+        operation: 'delete',
+        entityType: 'bookmark',
+        entityId: bookmarkId,
+        data: {'server_entity_id': serverEntityId},
+      );
+      unawaited(sync());
+    }
+  }
+
+  /// Delete note with sync tracking
+  Future<void> deleteNote(String noteId, {String? serverEntityId}) async {
+    final userId = _authService.currentUser?.id;
+    await _db.deleteNote(noteId);
+    if (userId != null) {
+      await _db.addToSyncQueue(
+        userId: userId,
+        operation: 'delete',
+        entityType: 'note',
+        entityId: noteId,
+        data: {'server_entity_id': serverEntityId},
+      );
+      unawaited(sync());
+    }
+  }
+
   /// Update progress with sync
   Future<void> updateProgress(ReadingProgressModel progress) async {
     final updated = progress.copyWith(
@@ -380,6 +439,3 @@ class SyncService {
     _syncController.add(status);
   }
 }
-
-/// Helper to ignore await
-void unawaited(Future<void> future) {}

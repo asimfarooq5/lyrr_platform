@@ -109,6 +109,9 @@ class ReadingProgress extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+
+  @override
+  List<Set<Column>> get uniqueKeys => [{userId, bookId}];
 }
 
 /// Sync queue table for pending changes
@@ -156,7 +159,7 @@ class LocalDatabase extends _$LocalDatabase {
   LocalDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -173,6 +176,24 @@ class LocalDatabase extends _$LocalDatabase {
         // those devices repair themselves instead of needing a reinstall.
         await _addColumnIfMissing(m, books, books.localAudioPath);
         await _addColumnIfMissing(m, books, books.localCoverPath);
+      }
+      if (from < 4) {
+        // Enforce unique constraint by creating unique index on reading_progress(user_id, book_id)
+        // Clean up any stale duplicate progress entries keeping only the latest last_read_at
+        await m.database.customStatement('''
+          DELETE FROM reading_progress 
+          WHERE id NOT IN (
+            SELECT p1.id FROM reading_progress p1
+            JOIN (
+              SELECT user_id, book_id, MAX(last_read_at) as max_date
+              FROM reading_progress
+              GROUP BY user_id, book_id
+            ) p2 ON p1.user_id = p2.user_id AND p1.book_id = p2.book_id AND p1.last_read_at = p2.max_date
+          )
+        ''');
+        await m.database.customStatement(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_reading_progress_user_book ON reading_progress(user_id, book_id)',
+        );
       }
     },
   );
@@ -417,9 +438,14 @@ class LocalDatabase extends _$LocalDatabase {
   }
 
   Future<void> insertProgress(ReadingProgressModel progress) async {
+    final existing = await (select(readingProgress)
+          ..where((p) => p.userId.equals(progress.userId) & p.bookId.equals(progress.bookId))
+          ..limit(1))
+        .getSingleOrNull();
+
     await into(readingProgress).insert(
       ReadingProgressCompanion(
-        id: Value(progress.id),
+        id: Value(existing?.id ?? progress.id),
         userId: Value(progress.userId),
         bookId: Value(progress.bookId),
         chapterId: Value(progress.chapterId),
@@ -431,8 +457,8 @@ class LocalDatabase extends _$LocalDatabase {
         lastReadAt: Value(progress.lastReadAt),
         lastSyncedAt: Value(progress.lastSyncedAt),
         deviceId: Value(progress.deviceId),
-        createdAt: Value(progress.createdAt),
-        updatedAt: Value(progress.updatedAt),
+        createdAt: Value(existing?.createdAt ?? progress.createdAt),
+        updatedAt: Value(DateTime.now()),
       ),
       mode: InsertMode.insertOrReplace,
     );
@@ -527,11 +553,11 @@ class LocalDatabase extends _$LocalDatabase {
     bookId: row.bookId,
     title: row.title,
     orderIndex: row.orderIndex,
-    paragraphs: (row.contentJson != null 
-        ? List<Map<String, dynamic>>.from(_decodeJson(row.contentJson!))
-        : [])
-        .map((p) => ParagraphModel.fromJson(p))
-        .toList(),
+    paragraphs: row.contentJson.isNotEmpty
+        ? List<Map<String, dynamic>>.from(_decodeJson(row.contentJson))
+            .map((p) => ParagraphModel.fromJson(p))
+            .toList()
+        : [],
     syncData: row.syncDataJson != null
         ? List<Map<String, dynamic>>.from(_decodeJson(row.syncDataJson!))
             .map((s) => SyncWordModel.fromJson(s))

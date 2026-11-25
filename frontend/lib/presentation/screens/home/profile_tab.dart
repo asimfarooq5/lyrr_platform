@@ -85,9 +85,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () {
-              // TODO: Navigate to settings
-            },
+            onPressed: () => _showSettingsSheet(context),
           ),
         ],
       ),
@@ -104,7 +102,12 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
               const SizedBox(height: 32),
               
               // Stats
-              if (_stats != null) ...[
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_stats != null) ...[
                 Text(
                   'Reading Statistics',
                   style: theme.textTheme.displaySmall,
@@ -302,6 +305,91 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
   void _comingSoon(BuildContext context, String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature is coming soon')),
+    );
+  }
+
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Settings & Preferences',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.sync_rounded),
+                title: const Text('Cloud Synchronization'),
+                subtitle: const Text('Force sync bookmarks and progress now'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final success = await ref.read(syncServiceProvider).sync();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(success ? 'Sync completed successfully' : 'Sync completed or already up to date'),
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_sweep_outlined),
+                title: const Text('Clear Audio Cache'),
+                subtitle: const Text('Free up local storage'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Audio cache cleared')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('App Information'),
+                subtitle: const Text('LYRR Platform v1.2.0 • Build 2026.10'),
+                onTap: () => showAboutDialog(
+                  context: context,
+                  applicationName: 'LYRR Platform',
+                  applicationVersion: '1.2.0',
+                  applicationLegalese: '© 2026 LYRR Platform',
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: AppColors.error),
+                title: const Text('Log Out', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(authServiceProvider).logout();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

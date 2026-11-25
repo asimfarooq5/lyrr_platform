@@ -102,8 +102,30 @@ Disk is at 98% — new images or large uploads will need the volume resized.
 | **Domain + HTTPS** | Runs on the server address over plain HTTP. No domain is registered, by request. |
 | **Campay live keys** | Payments settle in sandbox — nothing is charged. Keys go in `backend/.env`; the callback URL to register is `/api/v1/payments/webhook/campay`. |
 | **SMS/email OTP** | Codes are issued but not delivered; sandbox returns them. |
-| **iOS** | Android only. |
+| **iOS** | Configured for iOS 13+ (Info.plist background audio & ATS set, Podfile created). StoreKit IAP (Guideline 3.1.1) and macOS Xcode environment required for App Store release. |
 | **Word-sync for uploaded recordings** | Timings are estimated from the clip's length. Exact per-word timing needs forced alignment. |
+
+---
+
+## iOS Implementation & Readiness
+
+The core application code in `frontend/lib` (Flutter/Dart) is cross-platform and architecturally compatible with iOS:
+
+1. **Native iOS Manifests & Background Playback**:
+   - [`frontend/ios/Runner/Info.plist`](file:///home/asim/scm/xconnio/lyrr_platform/frontend/ios/Runner/Info.plist): Configured with `UIBackgroundModes: ["audio"]` to keep audiobooks and TTS narration playing when the screen is locked or the app is minimized.
+   - **App Transport Security (ATS)**: Configured with `NSAppTransportSecurity` to permit network calls and audio streaming over the current plain HTTP backend server address (`http://100.27.229.125:8080`).
+   - [`frontend/ios/Podfile`](file:///home/asim/scm/xconnio/lyrr_platform/frontend/ios/Podfile): Standardized with iOS 13.0 deployment target and CocoaPods plugin hooks.
+
+2. **App Store Payment Compliance (Guideline 3.1.1)**:
+   - On Android and Web, Lyrr sells pay-per-listen audio tokens via Campay (Orange Money / MTN MoMo / Credit Card).
+   - Under Apple App Store Guideline 3.1.1, all digital audio unlocks consumed in an iOS app must be handled through **Apple In-App Purchase (StoreKit)**.
+   - For an App Store release, either:
+     - Implement StoreKit consumable tokens (e.g. `1 Listen`, `5 Listens`) using Flutter's `in_app_purchase` plugin.
+     - Or adopt the **Reader App** model where purchases are completed on the web portal and the iOS client unlocks them via account sync.
+
+3. **Build Toolchain & Distribution Requirements**:
+   - Generating iOS release artifacts (`.ipa`, TestFlight, or App Store submissions) requires a macOS build environment with Xcode and CocoaPods (or a macOS CI/CD runner such as GitHub Actions or Codemagic) and an active Apple Developer Program membership.
+
 
 ---
 

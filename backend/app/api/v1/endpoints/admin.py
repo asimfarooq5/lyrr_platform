@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
@@ -40,7 +40,7 @@ async def get_dashboard(
     book_count = await db.scalar(select(func.count(Book.id)))
     
     # Count syncs in last 24h
-    yesterday = datetime.utcnow() - timedelta(hours=24)
+    yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
     sync_count = await db.scalar(
         select(func.count(SyncCheckpoint.id))
         .where(SyncCheckpoint.last_sync_at >= yesterday)
@@ -108,7 +108,7 @@ async def get_analytics(
     and most popular books.
     """
     days = max(1, min(days, 365))
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Users
     total_users = (await db.scalar(select(func.count(User.id)))) or 0
@@ -304,7 +304,7 @@ async def export_analytics(
     wb.save(buf)
     buf.seek(0)
 
-    filename = f"lyrr_analytics_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+    filename = f"lyrr_analytics_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

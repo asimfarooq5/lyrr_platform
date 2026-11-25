@@ -92,7 +92,6 @@ class DRMService {
     if (key == null) return null;
 
     try {
-      final iv = encrypt.IV.fromLength(16);
       final encrypter = encrypt.Encrypter(
         encrypt.AES(key, mode: encrypt.AESMode.cbc),
       );

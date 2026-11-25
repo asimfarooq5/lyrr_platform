@@ -370,7 +370,6 @@ class _SubscribeScreenState extends ConsumerState<SubscribeScreen> {
   }
 
   Widget _buildMethodTile(PaymentMethodModel method) {
-    final selected = _selectedMethod?.id == method.id;
     final IconData icon = switch (method.id) {
       'card' => Icons.credit_card,
       'orange_money' => Icons.phone_iphone,

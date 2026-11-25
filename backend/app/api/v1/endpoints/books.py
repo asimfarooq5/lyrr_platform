@@ -415,10 +415,10 @@ async def download_book(
     if not user_book:
         raise HTTPException(status_code=403, detail="Book not purchased")
     
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     user_book.is_downloaded = True
-    user_book.downloaded_at = datetime.utcnow()
+    user_book.downloaded_at = datetime.now(timezone.utc)
     await db.commit()
     
     return {"message": "Download recorded", "book_id": book_id}

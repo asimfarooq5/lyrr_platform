@@ -4,7 +4,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../providers/app_providers.dart';
 import 'library_tab.dart';
 import 'discover_tab.dart';
 import 'profile_tab.dart';
@@ -19,12 +18,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
   final _libraryKey = GlobalKey<LibraryTabState>();
-
-  final _tabs = [
-    LibraryTab(),
-    const DiscoverTab(),
-    const ProfileTab(),
-  ];
 
   @override
   Widget build(BuildContext context) {

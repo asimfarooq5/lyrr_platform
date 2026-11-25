@@ -388,7 +388,7 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
     if status in (BookStatus.DRAFT.value, BookStatus.PUBLISHED.value, BookStatus.ARCHIVED.value):
         book.status = BookStatus(status)
         if book.status == BookStatus.PUBLISHED and not book.published_at:
-            book.published_at = datetime.utcnow()
+            book.published_at = datetime.now(timezone.utc)
 
     # Pricing & Publishing (KDP-style): one category per book, replace on save.
     await db.execute(
@@ -1037,7 +1037,7 @@ async def export_analytics(request: Request, db: AsyncSession = Depends(get_db))
     ws = wb.active
     ws.title = "Summary"
     ws.append(["LYRR Analytics", ""])
-    ws.append(["Generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+    ws.append(["Generated", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")])
     ws.append([])
     ws.append(["Metric", "Value"])
     ws.append(["Total Users", total_users])
@@ -1068,7 +1068,7 @@ async def export_analytics(request: Request, db: AsyncSession = Depends(get_db))
     wb.save(buf)
     buf.seek(0)
 
-    filename = f"lyrr_analytics_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+    filename = f"lyrr_analytics_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

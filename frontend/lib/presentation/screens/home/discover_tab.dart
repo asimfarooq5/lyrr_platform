@@ -34,6 +34,13 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
   String? _error;
   String? _selectedLanguage;
 
+  List<BookModel> get _displayedBooks {
+    if (_selectedLanguage == null) return _books;
+    return _books
+        .where((b) => b.language.toLowerCase() == _selectedLanguage!.toLowerCase())
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -426,34 +433,73 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-              child: Text(
-                _searchController.text.isEmpty ? 'Browse the Store' : 'Search Results',
-                style: theme.textTheme.displaySmall,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _searchController.text.isEmpty ? 'Browse the Store' : 'Search Results',
+                    style: theme.textTheme.displaySmall,
+                  ),
+                  if (_selectedLanguage != null)
+                    ActionChip(
+                      avatar: const Icon(Icons.language, size: 14),
+                      label: Text(_getLanguageName(_selectedLanguage!)),
+                      onPressed: () => setState(() => _selectedLanguage = null),
+                      tooltip: 'Tap to clear filter',
+                    ),
+                ],
               ),
             ),
           ),
           
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.65,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
+          if (_displayedBooks.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.search_off, size: 48, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No books found',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      if (_selectedLanguage != null) ...[
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => setState(() => _selectedLanguage = null),
+                          child: const Text('Clear language filter'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final book = _books[index];
-                  return _BookGridCard(
-                    book: book,
-                    onTap: () => _showBookDetails(book),
-                  );
-                },
-                childCount: _books.length,
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.65,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final book = _displayedBooks[index];
+                    return _BookGridCard(
+                      book: book,
+                      onTap: () => _showBookDetails(book),
+                    );
+                  },
+                  childCount: _displayedBooks.length,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -832,7 +878,7 @@ class _BookDetailsSheet extends StatelessWidget {
                           Icons.timer,
                           book.formattedDuration,
                         ),
-                      if (book.language != null)
+                      if (book.language.isNotEmpty)
                         _buildMetadataChip(
                           Icons.language,
                           book.language.toUpperCase(),

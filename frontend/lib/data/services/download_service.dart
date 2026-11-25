@@ -13,7 +13,6 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../core/config.dart';
 import '../models/book_model.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -66,9 +65,14 @@ class DownloadService {
 
   Future<bool> isDownloaded(String bookId) async {
     if (kIsWeb) return false;
+    final book = await _db.getBook(bookId);
+    if (book == null || !book.isDownloaded) return false;
     final path = await _db.getLocalAudioPath(bookId);
-    if (path == null) return false;
-    return File(path).exists();
+    if (path != null && path.isNotEmpty) {
+      return File(path).exists();
+    }
+    final chapters = await _db.getChapters(bookId);
+    return chapters.isNotEmpty;
   }
 
   Future<String> _audioDir() async {

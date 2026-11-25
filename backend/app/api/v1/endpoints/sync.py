@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
-from app.models.sync import SyncQueue, SyncConflict, SyncEntityType, SyncOperation
+from app.models.sync import SyncQueue, SyncConflict, SyncCheckpoint, SyncEntityType, SyncOperation
 from app.models.user_data import Bookmark, Note, ReadingProgress
 from app.schemas.sync import (
     SyncPushRequest, SyncPullResponse, SyncConflictResponse,
@@ -69,12 +69,31 @@ async def push_sync(
                 "error": str(e)
             })
     
+    # Update or create SyncCheckpoint for user
+    now = datetime.now(timezone.utc)
+    cp_res = await db.execute(
+        select(SyncCheckpoint).where(SyncCheckpoint.user_id == current_user.id)
+    )
+    cp = cp_res.scalar_one_or_none()
+    if not cp:
+        cp = SyncCheckpoint(
+            user_id=current_user.id,
+            last_sync_at=now,
+            entities_synced=len(processed),
+            conflicts_count=len(conflicts)
+        )
+        db.add(cp)
+    else:
+        cp.last_sync_at = now
+        cp.entities_synced = (cp.entities_synced or 0) + len(processed)
+        cp.conflicts_count = (cp.conflicts_count or 0) + len(conflicts)
+
     await db.commit()
     
     return {
         "processed": processed,
         "conflicts": conflicts,
-        "server_timestamp": datetime.utcnow()
+        "server_timestamp": now
     }
 
 
@@ -169,9 +188,28 @@ async def pull_sync(
             "timestamp": progress.updated_at.isoformat() if progress.updated_at else progress.created_at.isoformat()
         })
     
+    now = datetime.now(timezone.utc)
+    # Update or create SyncCheckpoint for user
+    cp_res = await db.execute(
+        select(SyncCheckpoint).where(SyncCheckpoint.user_id == current_user.id)
+    )
+    cp = cp_res.scalar_one_or_none()
+    if not cp:
+        cp = SyncCheckpoint(
+            user_id=current_user.id,
+            last_sync_at=now,
+            entities_synced=len(changes)
+        )
+        db.add(cp)
+    else:
+        cp.last_sync_at = now
+        cp.entities_synced = (cp.entities_synced or 0) + len(changes)
+
+    await db.commit()
+    
     return {
         "changes": changes,
-        "server_timestamp": datetime.utcnow(),
+        "server_timestamp": now,
         "has_more": False  # Pagination not implemented for MVP
     }
 
@@ -249,7 +287,7 @@ async def resolve_conflict(
     conflict.is_resolved = True
     conflict.resolution = resolution
     conflict.resolved_data = resolved_data
-    conflict.resolved_at = datetime.utcnow()
+    conflict.resolved_at = datetime.now(timezone.utc)
 
     await db.commit()
 
@@ -321,7 +359,7 @@ async def _apply_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
     """Apply bookmark change"""
-    data = item.data
+    data = item.data or {}
     
     # Check if exists
     result = await db.execute(
@@ -334,12 +372,29 @@ async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    if item.operation == "delete":
+        if existing:
+            await db.delete(existing)
+        elif item.server_entity_id:
+            res = await db.execute(
+                select(Bookmark).where(
+                    and_(
+                        Bookmark.user_id == user_id,
+                        Bookmark.id == item.server_entity_id
+                    )
+                )
+            )
+            target = res.scalar_one_or_none()
+            if target:
+                await db.delete(target)
+        return
+
     if existing:
         # Update
         existing.word_id = data.get("word_id", existing.word_id)
         existing.note = data.get("note", existing.note)
         existing.color = data.get("color", existing.color)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         # Create
         bookmark = Bookmark(
@@ -358,7 +413,7 @@ async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_note_change(db: AsyncSession, user_id: str, item):
     """Apply note change"""
-    data = item.data
+    data = item.data or {}
     
     result = await db.execute(
         select(Note).where(
@@ -370,9 +425,26 @@ async def _apply_note_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    if item.operation == "delete":
+        if existing:
+            await db.delete(existing)
+        elif item.server_entity_id:
+            res = await db.execute(
+                select(Note).where(
+                    and_(
+                        Note.user_id == user_id,
+                        Note.id == item.server_entity_id
+                    )
+                )
+            )
+            target = res.scalar_one_or_none()
+            if target:
+                await db.delete(target)
+        return
+
     if existing:
         existing.content = data.get("content", existing.content)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         note = Note(
             user_id=user_id,
@@ -388,7 +460,7 @@ async def _apply_note_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_progress_change(db: AsyncSession, user_id: str, item):
     """Apply progress change"""
-    data = item.data
+    data = item.data or {}
     
     result = await db.execute(
         select(ReadingProgress).where(
@@ -400,22 +472,26 @@ async def _apply_progress_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    now = datetime.now(timezone.utc)
     if existing:
         existing.chapter_id = data.get("chapter_id", existing.chapter_id)
         existing.word_id = data.get("word_id", existing.word_id)
         existing.position_seconds = data.get("position_seconds", existing.position_seconds)
         existing.progress_percent = data.get("progress_percent", existing.progress_percent)
-        existing.last_read_at = datetime.utcnow()
-        existing.last_synced_at = datetime.utcnow()
+        existing.last_read_at = now
+        existing.last_synced_at = now
     else:
         progress = ReadingProgress(
             user_id=user_id,
             book_id=data["book_id"],
             chapter_id=data.get("chapter_id"),
             word_id=data.get("word_id"),
-            position_seconds=data.get("position_seconds", 0),
-            progress_percent=data.get("progress_percent", 0),
-            last_synced_at=datetime.utcnow()
+            position_seconds=data.get("position_seconds", 0.0),
+            progress_percent=data.get("progress_percent", 0.0),
+            total_reading_time_seconds=data.get("total_reading_time_seconds", 0),
+            sessions_count=data.get("sessions_count", 1),
+            last_read_at=now,
+            last_synced_at=now
         )
         db.add(progress)
 
@@ -485,7 +561,7 @@ async def _apply_bookmark_data(db: AsyncSession, user_id: str, data: Dict):
         existing.word_id = data.get("word_id", existing.word_id)
         existing.note = data.get("note", existing.note)
         existing.color = data.get("color", existing.color)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         db.add(Bookmark(
             user_id=user_id,
@@ -522,7 +598,7 @@ async def _apply_note_data(db: AsyncSession, user_id: str, data: Dict):
 
     if existing:
         existing.content = data.get("content", existing.content)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         db.add(Note(
             user_id=user_id,
@@ -550,7 +626,7 @@ async def _apply_progress_data(db: AsyncSession, user_id: str, data: Dict):
         )
     )).scalar_one_or_none()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if existing:
         existing.chapter_id = data.get("chapter_id", existing.chapter_id)
         existing.word_id = data.get("word_id", existing.word_id)

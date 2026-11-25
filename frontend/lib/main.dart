@@ -71,8 +71,6 @@ class LYRRApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authServiceProvider);
-    
     return MaterialApp(
       title: 'LYRR',
       debugShowCheckedModeBanner: false,
@@ -122,10 +120,7 @@ class _AppNavigatorState extends ConsumerState<AppNavigator> {
   }
 
   Future<void> _initialize() async {
-    // Wait for auth service to initialize
-    final authService = ref.read(authServiceProvider);
-    
-    // Give time for initialization
+    // Give time for auth service and storage initialization
     await Future.delayed(const Duration(milliseconds: 500));
     
     if (mounted) {
