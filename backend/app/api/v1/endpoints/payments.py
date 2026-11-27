@@ -8,13 +8,15 @@ Implements the FRS Payment Module:
     - Complete payment history
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+from jose import jwt, JWTError
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
@@ -68,9 +70,11 @@ class PaymentResponse(BaseModel):
     gateway_reference: Optional[str] = None
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    checkout_data: Optional[Dict[str, Any]] = Field(default=None, alias="payment_metadata")
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 # ---- Endpoints ----
@@ -202,10 +206,12 @@ async def confirm_payment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Confirm a pending payment (mobile money approval callback).
+    """Confirm a pending payment.
 
     In sandbox mode this completes the order and grants the entitlement,
-    simulating the notification a mobile money gateway sends on approval.
+    simulating the notification a mobile money/card gateway sends on
+    approval. In live mode the gateway is asked for the charge's real
+    status first — the client cannot self-report success.
     """
     result = await db.execute(
         select(Payment).where(
@@ -223,5 +229,88 @@ async def confirm_payment(
     if payment.status in (payment_service.STATUS_FAILED, payment_service.STATUS_CANCELLED, payment_service.STATUS_EXPIRED):
         raise HTTPException(status_code=400, detail=f"Payment is {payment.status}")
 
+    if settings.PAYMENT_MODE == "live":
+        gateway = payment_service.get_gateway(payment.method)
+        try:
+            gateway_status = await gateway.verify_charge(payment.gateway_reference or payment.reference)
+        except payment_service.PaymentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if gateway_status.get("status") != payment_service.STATUS_COMPLETED:
+            payment.status = gateway_status.get("status", payment.status)
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Payment not yet confirmed by gateway (status={payment.status})",
+            )
+
     await payment_service.complete_payment(db, payment)
     return payment
+
+
+@router.post("/webhook/campay", include_in_schema=False)
+async def campay_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """CamPay callback, fired when a mobile-money transaction settles.
+
+    CamPay posts (or GETs) the transaction to the callback URL configured in
+    the app: ``status``, ``reference``, ``external_reference``, ``signature``…
+    We validate the HS256 ``signature`` JWT with the app's webhook key and then
+    re-check the transaction with CamPay before completing the order, so a
+    forged callback cannot fake a payment.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        # CamPay can be configured for GET callbacks, which deliver query params.
+        body = dict(request.query_params)
+
+    # 1. Authenticity: validate the HS256 signature JWT when a key is configured.
+    signature = body.get("signature")
+    if settings.CAMPAY_WEBHOOK_KEY:
+        if not signature:
+            raise HTTPException(status_code=401, detail="Missing webhook signature")
+        try:
+            jwt.decode(
+                signature,
+                settings.CAMPAY_WEBHOOK_KEY,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    # Only "collect" (payment in) concerns us; "withdraw" is a payout.
+    if body.get("endpoint") and body.get("endpoint") != "collect":
+        return {"message": "ignored"}
+
+    # 2. Locate our order. We send our own reference as external_reference.
+    our_reference = body.get("external_reference") or body.get("reference")
+    if not our_reference:
+        raise HTTPException(status_code=400, detail="Missing reference")
+
+    result = await db.execute(select(Payment).where(Payment.reference == our_reference))
+    payment = result.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if payment.status == payment_service.STATUS_COMPLETED:
+        return {"message": "already completed"}
+
+    # 3. Never trust the payload — verify with CamPay itself.
+    gateway = payment_service.get_gateway(payment.method)
+    try:
+        gateway_status = await gateway.verify_charge(
+            payment.gateway_reference or payment.reference
+        )
+    except payment_service.PaymentError:
+        return {"message": "verification failed, will retry"}
+
+    if gateway_status.get("status") == payment_service.STATUS_COMPLETED:
+        await payment_service.complete_payment(db, payment)
+    else:
+        payment.status = gateway_status.get("status", payment.status)
+        await db.commit()
+
+    return {"message": "processed"}

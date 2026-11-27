@@ -1,5 +1,4 @@
 /// Book Models - ALL fromJson methods null-safe
-import 'dart:convert';
 import '../../core/config.dart';
 
 class BookModel {
@@ -22,6 +21,7 @@ class BookModel {
   final double? progressPercent;
   final DateTime? lastReadAt;
   final String? bookType;
+  final double? price;
 
   BookModel({
     required this.id, required this.title, this.subtitle, required this.author,
@@ -29,8 +29,27 @@ class BookModel {
     this.wordCount, this.status = 'published', this.isFeatured = false,
     this.drmEnabled = true, required this.createdAt, this.updatedAt,
     this.isDownloaded = false, this.isPurchased = false,
-    this.progressPercent, this.lastReadAt, this.bookType,
+    this.progressPercent, this.lastReadAt, this.bookType, this.price,
   });
+
+  /// Prices are in Central African francs, the same currency the store's
+  /// subscriptions are priced in. Shown without the currency a bare "2500.00"
+  /// tells the reader nothing about what they are being asked to pay.
+  String get formattedPrice {
+    final p = price;
+    if (p == null) return '';
+    return '${_thousands(p.round())} XAF';
+  }
+
+  static String _thousands(int value) {
+    final digits = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(digits[i]);
+    }
+    return buffer.toString();
+  }
 
   String? get resolvedCoverUrl {
     if (coverUrl == null) return null;
@@ -58,6 +77,7 @@ class BookModel {
     'is_downloaded': isDownloaded, 'is_purchased': isPurchased,
     'progress_percent': progressPercent,
     'last_read_at': lastReadAt?.toIso8601String(),
+    'price': price,
   };
 
   factory BookModel.fromJson(Map<String, dynamic> json) => BookModel(
@@ -86,6 +106,7 @@ class BookModel {
         ? DateTime.parse((json['last_read_at'] as String).replaceAll('+00:00', 'Z'))
         : null,
     bookType: json['book_type'] as String?,
+    price: (json['price'] as num?)?.toDouble(),
   );
 
   BookModel copyWith({
@@ -118,12 +139,16 @@ class ChapterModel {
   final int orderIndex;
   final List<ParagraphModel> paragraphs;
   final List<SyncWordModel>? syncData;
+  /// Narration clip for this chapter (multi-file audiobooks). Null for books
+  /// whose audio is book-level, or that have no narration at all.
+  final String? audioUrl;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
   ChapterModel({
     required this.id, required this.bookId, required this.title,
     required this.orderIndex, required this.paragraphs, this.syncData,
+    this.audioUrl,
     required this.createdAt, this.updatedAt,
   });
 
@@ -140,6 +165,7 @@ class ChapterModel {
     syncData: (json['sync_data'] as List?)
         ?.map((s) => SyncWordModel.fromJson(s as Map<String, dynamic>))
         .toList(),
+    audioUrl: json['audio_url'] as String?,
     createdAt: json['created_at'] != null
         ? DateTime.parse((json['created_at'] as String).replaceAll('+00:00', 'Z'))
         : DateTime.now(),
@@ -238,5 +264,71 @@ class DRMLicenseModel {
     expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at'] as String) : null,
     downloadUrl: json['download_url'] as String?,
     encryptionKeyId: json['encryption_key_id'] as String?,
+  );
+}
+
+/// Kindle-style Collections (shelves)
+class CollectionBookSummary {
+  final String bookId;
+  final String title;
+  final String author;
+  final String? coverUrl;
+
+  CollectionBookSummary({required this.bookId, required this.title, required this.author, this.coverUrl});
+
+  factory CollectionBookSummary.fromJson(Map<String, dynamic> json) => CollectionBookSummary(
+    bookId: (json['book_id'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    author: (json['author'] ?? '') as String,
+    coverUrl: json['cover_url'] as String?,
+  );
+}
+
+class CollectionModel {
+  final String id;
+  final String name;
+  final DateTime createdAt;
+  final List<CollectionBookSummary> books;
+
+  CollectionModel({required this.id, required this.name, required this.createdAt, this.books = const []});
+
+  factory CollectionModel.fromJson(Map<String, dynamic> json) => CollectionModel(
+    id: (json['id'] ?? '') as String,
+    name: (json['name'] ?? '') as String,
+    createdAt: json['created_at'] != null
+        ? DateTime.parse((json['created_at'] as String).replaceAll('+00:00', 'Z'))
+        : DateTime.now(),
+    books: (json['books'] as List? ?? [])
+        .map((b) => CollectionBookSummary.fromJson(b as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
+/// Kindle-style tap-to-define dictionary entry
+class DictionaryMeaning {
+  final String partOfSpeech;
+  final List<String> definitions;
+
+  DictionaryMeaning({required this.partOfSpeech, required this.definitions});
+
+  factory DictionaryMeaning.fromJson(Map<String, dynamic> json) => DictionaryMeaning(
+    partOfSpeech: (json['part_of_speech'] ?? '') as String,
+    definitions: (json['definitions'] as List? ?? []).map((d) => d.toString()).toList(),
+  );
+}
+
+class DictionaryEntry {
+  final String word;
+  final String? phonetic;
+  final List<DictionaryMeaning> meanings;
+
+  DictionaryEntry({required this.word, this.phonetic, required this.meanings});
+
+  factory DictionaryEntry.fromJson(Map<String, dynamic> json) => DictionaryEntry(
+    word: (json['word'] ?? '') as String,
+    phonetic: json['phonetic'] as String?,
+    meanings: (json['meanings'] as List? ?? [])
+        .map((m) => DictionaryMeaning.fromJson(m as Map<String, dynamic>))
+        .toList(),
   );
 }

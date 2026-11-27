@@ -8,7 +8,7 @@ FROM ghcr.io/cirruslabs/flutter:3.41.1 as builder
 WORKDIR /app
 
 # API base URL injected at build time (defaults to the production API)
-ARG API_BASE_URL=https://api.lyrr.app/api/v1
+ARG API_BASE_URL=http://100.27.229.125:8080/api/v1
 
 # Copy pubspec files
 COPY pubspec.yaml pubspec.lock ./

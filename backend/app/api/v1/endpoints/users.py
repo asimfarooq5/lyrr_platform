@@ -2,23 +2,25 @@
 User data endpoints - library, bookmarks, notes, progress, streaks
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc, func as sa_func
+from sqlalchemy import select, and_, desc, delete, func as sa_func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.models.book import Book, UserBook
-from app.models.user_data import Bookmark, Note, ReadingProgress
+from app.models.user_data import Bookmark, Note, ReadingProgress, Collection, CollectionBook
 from app.models.reading_session import ReadingSession
 from app.schemas.user_data import (
     BookmarkCreate, BookmarkUpdate, BookmarkResponse,
     NoteCreate, NoteUpdate, NoteResponse,
     ReadingProgressCreate, ReadingProgressUpdate, ReadingProgressResponse,
-    UserLibraryResponse, UserLibraryBook, ReadingStats
+    UserLibraryResponse, UserLibraryBook, ReadingStats,
+    CollectionCreate, CollectionResponse, CollectionBookSummary,
 )
 
 router = APIRouter()
@@ -83,10 +85,45 @@ async def get_library(
     }
 
 
+@router.delete("/library/{book_id}")
+async def remove_from_library(
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Remove a book from the reader's library.
+
+    Drops the licence plus everything the reader accumulated for that title
+    (progress, bookmarks, notes), so re-adding it later starts clean rather
+    than resurrecting stale position data.
+    """
+    result = await db.execute(
+        select(UserBook).where(
+            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+        )
+    )
+    user_book = result.scalar_one_or_none()
+    if not user_book:
+        raise HTTPException(status_code=404, detail="Book is not in your library")
+
+    await db.delete(user_book)
+    for model in (ReadingProgress, Bookmark, Note):
+        await db.execute(
+            delete(model).where(
+                and_(model.user_id == current_user.id, model.book_id == book_id)
+            )
+        )
+    await db.commit()
+
+    return {"message": "Removed from library", "book_id": book_id}
+
+
 # Bookmarks
 @router.get("/bookmarks", response_model=List[BookmarkResponse])
 async def get_bookmarks(
     book_id: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -96,7 +133,7 @@ async def get_bookmarks(
     if book_id:
         query = query.where(Bookmark.book_id == book_id)
     
-    query = query.order_by(desc(Bookmark.created_at))
+    query = query.order_by(desc(Bookmark.created_at)).offset(skip).limit(limit)
     
     result = await db.execute(query)
     return result.scalars().all()
@@ -164,7 +201,7 @@ async def update_bookmark(
     if update.color is not None:
         bookmark.color = update.color.value
     
-    bookmark.updated_at = datetime.utcnow()
+    bookmark.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(bookmark)
     
@@ -198,6 +235,8 @@ async def delete_bookmark(
 @router.get("/notes", response_model=List[NoteResponse])
 async def get_notes(
     book_id: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -207,7 +246,7 @@ async def get_notes(
     if book_id:
         query = query.where(Note.book_id == book_id)
     
-    query = query.order_by(desc(Note.created_at))
+    query = query.order_by(desc(Note.created_at)).offset(skip).limit(limit)
     
     result = await db.execute(query)
     return result.scalars().all()
@@ -256,7 +295,7 @@ async def update_note(
         raise HTTPException(status_code=404, detail="Note not found")
     
     note.content = update.content
-    note.updated_at = datetime.utcnow()
+    note.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(note)
     
@@ -289,6 +328,8 @@ async def delete_note(
 # Reading Progress
 @router.get("/progress", response_model=List[ReadingProgressResponse])
 async def get_progress(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -297,6 +338,8 @@ async def get_progress(
         select(ReadingProgress)
         .where(ReadingProgress.user_id == current_user.id)
         .order_by(desc(ReadingProgress.last_read_at))
+        .offset(skip)
+        .limit(limit)
     )
     return result.scalars().all()
 
@@ -324,99 +367,102 @@ async def get_book_progress(
     return progress
 
 
+async def _touch_reading_session(
+    db: AsyncSession, user_id: str, book_id: Optional[str], seconds: int = 10
+) -> None:
+    """Add `seconds` to today's reading session for the user (upsert-safe)."""
+    today = date.today()
+    session = (await db.execute(
+        select(ReadingSession).where(
+            and_(
+                ReadingSession.user_id == user_id,
+                ReadingSession.date == today,
+            )
+        )
+    )).scalar_one_or_none()
+    if session:
+        session.duration_seconds += seconds
+    else:
+        db.add(ReadingSession(
+            user_id=user_id,
+            book_id=book_id,
+            date=today,
+            duration_seconds=seconds,
+        ))
+
+
 @router.post("/progress", response_model=ReadingProgressResponse)
 async def update_progress(
     progress: ReadingProgressCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Update reading progress and track daily reading session"""
-    # Check if progress exists
-    result = await db.execute(
+    """Update reading progress and track the daily reading session.
+
+    Race-safe: (user_id, book_id) is unique, so a concurrent insert is caught
+    and retried as an update instead of raising.
+    """
+    def _apply(target: ReadingProgress) -> None:
+        target.chapter_id = progress.chapter_id
+        target.word_id = progress.word_id
+        target.position_seconds = progress.position_seconds
+        target.progress_percent = progress.progress_percent
+        now = datetime.now(timezone.utc)
+        target.last_read_at = now
+        target.last_synced_at = now
+
+    existing = (await db.execute(
         select(ReadingProgress).where(
             and_(
                 ReadingProgress.user_id == current_user.id,
-                ReadingProgress.book_id == progress.book_id
+                ReadingProgress.book_id == progress.book_id,
             )
         )
-    )
-    existing = result.scalar_one_or_none()
-    
+    )).scalar_one_or_none()
+
     if existing:
-        # Update existing
-        existing.chapter_id = progress.chapter_id
-        existing.word_id = progress.word_id
-        existing.position_seconds = progress.position_seconds
-        existing.progress_percent = progress.progress_percent
-        existing.last_read_at = datetime.utcnow()
-        existing.total_reading_time_seconds += 10  # Called every 10s
+        _apply(existing)
+        existing.total_reading_time_seconds += 10  # called every ~10s
         existing.sessions_count += 1
-        existing.last_synced_at = datetime.utcnow()
-        
-        # Update daily reading session
-        today = date.today()
-        session_result = await db.execute(
-            select(ReadingSession).where(
-                and_(
-                    ReadingSession.user_id == current_user.id,
-                    ReadingSession.date == today
-                )
-            )
-        )
-        session = session_result.scalar_one_or_none()
-        if session:
-            session.duration_seconds += 10
-        else:
-            session = ReadingSession(
-                user_id=current_user.id,
-                book_id=progress.book_id,
-                date=today,
-                duration_seconds=10,
-            )
-            db.add(session)
-        
+        await _touch_reading_session(db, current_user.id, progress.book_id)
         await db.commit()
         await db.refresh(existing)
         return existing
-    else:
-        # Create new progress entry
-        new_progress = ReadingProgress(
-            user_id=current_user.id,
-            book_id=progress.book_id,
-            chapter_id=progress.chapter_id,
-            word_id=progress.word_id,
-            position_seconds=progress.position_seconds,
-            progress_percent=progress.progress_percent,
-            device_id=progress.device_id,
-            last_synced_at=datetime.utcnow()
-        )
-        
-        # Track initial reading session (upsert: one session per user per day)
-        today = date.today()
-        session_result = await db.execute(
-            select(ReadingSession).where(
+
+    new_progress = ReadingProgress(
+        user_id=current_user.id,
+        book_id=progress.book_id,
+        chapter_id=progress.chapter_id,
+        word_id=progress.word_id,
+        position_seconds=progress.position_seconds,
+        progress_percent=progress.progress_percent,
+        device_id=progress.device_id,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    db.add(new_progress)
+    await _touch_reading_session(db, current_user.id, progress.book_id)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Another request inserted this (user, book) between our SELECT and
+        # INSERT — fall back to updating the row that won the race.
+        await db.rollback()
+        existing = (await db.execute(
+            select(ReadingProgress).where(
                 and_(
-                    ReadingSession.user_id == current_user.id,
-                    ReadingSession.date == today
+                    ReadingProgress.user_id == current_user.id,
+                    ReadingProgress.book_id == progress.book_id,
                 )
             )
-        )
-        session = session_result.scalar_one_or_none()
-        if session:
-            session.duration_seconds += 10
-        else:
-            session = ReadingSession(
-                user_id=current_user.id,
-                book_id=progress.book_id,
-                date=today,
-                duration_seconds=10,
-            )
-            db.add(session)
-        
-        db.add(new_progress)
+        )).scalar_one()
+        _apply(existing)
         await db.commit()
-        await db.refresh(new_progress)
-        return new_progress
+        await db.refresh(existing)
+        return existing
+
+    await db.refresh(new_progress)
+    return new_progress
 
 
 @router.get("/stats", response_model=ReadingStats)
@@ -521,3 +567,120 @@ async def get_reading_streaks(
         "daily_goal_minutes": 30,
         "calendar": calendar,
     }
+
+
+# ---- Collections (Kindle-style shelves) ----
+
+async def _collection_response(db: AsyncSession, collection: Collection) -> CollectionResponse:
+    rows = await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url)
+        .join(CollectionBook, CollectionBook.book_id == Book.id)
+        .where(CollectionBook.collection_id == collection.id)
+        .order_by(CollectionBook.added_at.desc())
+    )
+    books = [
+        CollectionBookSummary(book_id=r.id, title=r.title, author=r.author, cover_url=r.cover_url)
+        for r in rows.all()
+    ]
+    return CollectionResponse(
+        id=collection.id, name=collection.name, created_at=collection.created_at, books=books,
+    )
+
+
+@router.get("/collections", response_model=List[CollectionResponse])
+async def list_collections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List the user's custom collections/shelves."""
+    result = await db.execute(
+        select(Collection).where(Collection.user_id == current_user.id)
+        .order_by(Collection.created_at)
+    )
+    collections = result.scalars().all()
+    return [await _collection_response(db, c) for c in collections]
+
+
+@router.post("/collections", response_model=CollectionResponse, status_code=status.HTTP_201_CREATED)
+async def create_collection(
+    data: CollectionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    collection = Collection(user_id=current_user.id, name=data.name.strip())
+    db.add(collection)
+    await db.commit()
+    await db.refresh(collection)
+    return await _collection_response(db, collection)
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    await db.delete(collection)
+    await db.commit()
+    return {"message": "Collection deleted"}
+
+
+@router.post("/collections/{collection_id}/books/{book_id}", response_model=CollectionResponse)
+async def add_book_to_collection(
+    collection_id: str,
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    existing = await db.execute(
+        select(CollectionBook).where(
+            CollectionBook.collection_id == collection_id, CollectionBook.book_id == book_id
+        )
+    )
+    if not existing.scalar_one_or_none():
+        db.add(CollectionBook(collection_id=collection_id, book_id=book_id))
+        await db.commit()
+
+    return await _collection_response(db, collection)
+
+
+@router.delete("/collections/{collection_id}/books/{book_id}", response_model=CollectionResponse)
+async def remove_book_from_collection(
+    collection_id: str,
+    book_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    result = await db.execute(
+        select(Collection).where(
+            Collection.id == collection_id, Collection.user_id == current_user.id
+        )
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    await db.execute(
+        CollectionBook.__table__.delete().where(
+            CollectionBook.collection_id == collection_id, CollectionBook.book_id == book_id
+        )
+    )
+    await db.commit()
+    return await _collection_response(db, collection)

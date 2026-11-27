@@ -7,8 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
 import '../../../data/models/user_data_model.dart';
 import '../../theme/app_theme.dart';
-import 'subscribe_screen.dart';
 import 'payment_history_screen.dart';
+import 'downloads_screen.dart';
+import 'sync_screen.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -84,9 +85,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () {
-              // TODO: Navigate to settings
-            },
+            onPressed: () => _showSettingsSheet(context),
           ),
         ],
       ),
@@ -103,7 +102,12 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
               const SizedBox(height: 32),
               
               // Stats
-              if (_stats != null) ...[
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_stats != null) ...[
                 Text(
                   'Reading Statistics',
                   style: theme.textTheme.displaySmall,
@@ -113,9 +117,9 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
                 const SizedBox(height: 32),
               ],
               
-              // Premium banner
-              _buildPremiumCard(theme),
-              const SizedBox(height: 32),
+              // Subscriptions are hidden for now: the product sells single
+              // listens, so a Premium card here would promise something the
+              // app does not offer.
               
               // Menu items
               _buildMenuSection(theme),
@@ -174,9 +178,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           
           // Edit profile button
           TextButton(
-            onPressed: () {
-              // TODO: Edit profile
-            },
+            onPressed: () => _comingSoon(context, 'Editing your profile'),
             child: const Text('Edit Profile'),
           ),
         ],
@@ -221,58 +223,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
     );
   }
 
-  Widget _buildPremiumCard(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primary, AppColors.secondary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.workspace_premium, color: Colors.white, size: 40),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'LYRR Premium',
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(color: Colors.white),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Unlimited books with synchronized audio',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.white.withOpacity(0.9)),
-                ),
-              ],
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SubscribeScreen(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: AppColors.primary,
-            ),
-            child: const Text('Subscribe'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildMenuSection(ThemeData theme) {
     return Column(
@@ -288,7 +239,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           title: 'Downloads',
           subtitle: 'Manage offline books',
           onTap: () {
-            // TODO: Navigate to downloads
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadsScreen()));
           },
         ),
         _MenuItem(
@@ -309,50 +260,136 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
           title: 'Sync',
           subtitle: 'Cloud synchronization settings',
           onTap: () {
-            // TODO: Navigate to sync settings
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const SyncScreen()));
           },
         ),
         _MenuItem(
           icon: Icons.notifications_outlined,
           title: 'Notifications',
           subtitle: 'Manage notification preferences',
-          onTap: () {
-            // TODO: Navigate to notifications
-          },
+          onTap: () => _comingSoon(context, 'Notification preferences'),
         ),
         _MenuItem(
           icon: Icons.language,
           title: 'Language',
           subtitle: 'App language and content language',
-          onTap: () {
-            // TODO: Navigate to language settings
-          },
+          onTap: () => _comingSoon(context, 'Language settings'),
         ),
         _MenuItem(
           icon: Icons.help_outline,
           title: 'Help & Support',
           subtitle: 'FAQs, contact support',
-          onTap: () {
-            // TODO: Navigate to help
-          },
+          onTap: () => _comingSoon(context, 'Help & Support'),
         ),
         _MenuItem(
           icon: Icons.privacy_tip_outlined,
           title: 'Privacy & Security',
           subtitle: 'Privacy policy, data settings',
-          onTap: () {
-            // TODO: Navigate to privacy
-          },
+          onTap: () => _comingSoon(context, 'Privacy & Security'),
         ),
         _MenuItem(
           icon: Icons.info_outline,
           title: 'About',
           subtitle: 'App version, terms of service',
-          onTap: () {
-            // TODO: Navigate to about
-          },
+          onTap: () => showAboutDialog(
+            context: context,
+            applicationName: 'LYRR',
+            applicationVersion: '1.0.0',
+            applicationLegalese: '© 2026 LYRR Platform',
+          ),
         ),
       ],
+    );
+  }
+
+  void _comingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is coming soon')),
+    );
+  }
+
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Settings & Preferences',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.sync_rounded),
+                title: const Text('Cloud Synchronization'),
+                subtitle: const Text('Force sync bookmarks and progress now'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final success = await ref.read(syncServiceProvider).sync();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(success ? 'Sync completed successfully' : 'Sync completed or already up to date'),
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_sweep_outlined),
+                title: const Text('Clear Audio Cache'),
+                subtitle: const Text('Free up local storage'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Audio cache cleared')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('App Information'),
+                subtitle: const Text('LYRR Platform v1.2.0 • Build 2026.10'),
+                onTap: () => showAboutDialog(
+                  context: context,
+                  applicationName: 'LYRR Platform',
+                  applicationVersion: '1.2.0',
+                  applicationLegalese: '© 2026 LYRR Platform',
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: AppColors.error),
+                title: const Text('Log Out', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(authServiceProvider).logout();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

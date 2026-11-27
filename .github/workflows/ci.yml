@@ -1,0 +1,205 @@
+name: LYRR Platform Fast CI
+
+on:
+  push:
+    branches: [ "main", "feature/**", "beta/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Cancel previous in-flight runs of the same branch/PR to save runner time and finish faster
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Detect modified paths so we only run relevant jobs
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'infrastructure/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  # =========================================================================
+  # 1. Backend CI (FastAPI, Schemas, Security, Docker) - Runs in ~30s
+  # =========================================================================
+  backend-ci:
+    name: Backend Test & Lint
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Compile check Python sources
+        run: |
+          python -m compileall backend/app
+
+      - name: Run backend test suite
+        env:
+          SECRET_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+          ENVIRONMENT: "testing"
+          MEDIA_AUTH_ENABLED: "false"
+          BYPASS_LIBRARY_PERMISSIONS: "true"
+        run: |
+          cd backend
+          PYTHONPATH=. python -m unittest discover -s tests -v
+
+      - name: Set up Docker Buildx (for faster cached layer builds)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image with caching
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.simple
+          push: false
+          tags: lyrr-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # =========================================================================
+  # 2. Frontend CI - Android & Web (Fast cached Flutter build)
+  # =========================================================================
+  frontend-ci:
+    name: Frontend Test, APK & Web Build
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Gradle Cache (accelerates Android build)
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
+
+      - name: Install Flutter dependencies
+        run: |
+          cd frontend
+          flutter pub get
+
+      - name: Fast analyze Flutter codebase
+        run: |
+          cd frontend
+          flutter analyze --no-fatal-infos --no-fatal-warnings || true
+
+      - name: Run Flutter tests
+        run: |
+          cd frontend
+          flutter test --reporter expanded
+
+      - name: Build Android Release APK
+        run: |
+          cd frontend
+          flutter build apk --release --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1
+          mkdir -p ../dist
+          cp build/app/outputs/flutter-apk/app-release.apk ../dist/lyrr-server.apk
+
+      - name: Build Flutter Web
+        run: |
+          cd frontend
+          flutter build web --release
+          mkdir -p ../dist/web
+          cp -r build/web/* ../dist/web/
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrr-android-apk
+          path: dist/lyrr-server.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Web Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrr-web-build
+          path: dist/web/
+          if-no-files-found: error
+          retention-days: 14
+
+  # =========================================================================
+  # 3. Frontend iOS CI (macOS Runner with Xcode & CocoaPods Cache)
+  # =========================================================================
+  frontend-ios:
+    name: Frontend iOS Build (macOS)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-13
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: |
+          cd frontend
+          flutter pub get
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: frontend/ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('frontend/ios/Podfile') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd frontend/ios
+          pod install
+
+      - name: Build iOS (Release, Unsigned)
+        run: |
+          cd frontend
+          flutter build ios --release --no-codesign --dart-define=API_BASE_URL=http://100.27.229.125:8080/api/v1

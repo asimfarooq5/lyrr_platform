@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.user import User
-from app.models.sync import SyncQueue, SyncConflict, SyncEntityType, SyncOperation
+from app.models.sync import SyncQueue, SyncConflict, SyncCheckpoint, SyncEntityType, SyncOperation
 from app.models.user_data import Bookmark, Note, ReadingProgress
 from app.schemas.sync import (
     SyncPushRequest, SyncPullResponse, SyncConflictResponse,
@@ -69,12 +69,31 @@ async def push_sync(
                 "error": str(e)
             })
     
+    # Update or create SyncCheckpoint for user
+    now = datetime.now(timezone.utc)
+    cp_res = await db.execute(
+        select(SyncCheckpoint).where(SyncCheckpoint.user_id == current_user.id)
+    )
+    cp = cp_res.scalar_one_or_none()
+    if not cp:
+        cp = SyncCheckpoint(
+            user_id=current_user.id,
+            last_sync_at=now,
+            entities_synced=len(processed),
+            conflicts_count=len(conflicts)
+        )
+        db.add(cp)
+    else:
+        cp.last_sync_at = now
+        cp.entities_synced = (cp.entities_synced or 0) + len(processed)
+        cp.conflicts_count = (cp.conflicts_count or 0) + len(conflicts)
+
     await db.commit()
     
     return {
         "processed": processed,
         "conflicts": conflicts,
-        "server_timestamp": datetime.utcnow()
+        "server_timestamp": now
     }
 
 
@@ -169,9 +188,28 @@ async def pull_sync(
             "timestamp": progress.updated_at.isoformat() if progress.updated_at else progress.created_at.isoformat()
         })
     
+    now = datetime.now(timezone.utc)
+    # Update or create SyncCheckpoint for user
+    cp_res = await db.execute(
+        select(SyncCheckpoint).where(SyncCheckpoint.user_id == current_user.id)
+    )
+    cp = cp_res.scalar_one_or_none()
+    if not cp:
+        cp = SyncCheckpoint(
+            user_id=current_user.id,
+            last_sync_at=now,
+            entities_synced=len(changes)
+        )
+        db.add(cp)
+    else:
+        cp.last_sync_at = now
+        cp.entities_synced = (cp.entities_synced or 0) + len(changes)
+
+    await db.commit()
+    
     return {
         "changes": changes,
-        "server_timestamp": datetime.utcnow(),
+        "server_timestamp": now,
         "has_more": False  # Pagination not implemented for MVP
     }
 
@@ -196,11 +234,11 @@ async def get_conflicts(
 @router.post("/resolve/{conflict_id}")
 async def resolve_conflict(
     conflict_id: str,
-    resolution: SyncResolveRequest,
+    payload: SyncResolveRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Resolve a sync conflict"""
+    """Resolve a sync conflict by choosing the server, client, or merged version."""
     result = await db.execute(
         select(SyncConflict).where(
             and_(
@@ -210,35 +248,50 @@ async def resolve_conflict(
         )
     )
     conflict = result.scalar_one_or_none()
-    
+
     if not conflict:
         raise HTTPException(status_code=404, detail="Conflict not found")
-    
-    # Apply resolution
-    if resolution.resolution == "server":
-        # Keep server version (do nothing)
+
+    if conflict.is_resolved:
+        return {"message": "Conflict already resolved", "resolution": conflict.resolution}
+
+    resolution = (payload.resolution or "").lower()
+    if resolution not in ("server", "client", "merged"):
+        raise HTTPException(
+            status_code=400,
+            detail="resolution must be 'server', 'client', or 'merged'",
+        )
+
+    resolved_data = None
+
+    if resolution == "server":
+        # Keep the server version — nothing to apply.
         pass
-    elif resolution.resolution == "client":
-        # Apply client version
+    elif resolution == "client":
+        # Apply the client's original payload.
+        resolved_data = conflict.client_data
         await _apply_change_from_data(
             db, current_user.id, conflict.entity_type, conflict.client_data
         )
-    elif resolution.resolution == "merged":
-        # Apply merged data
-        if resolution.merged_data:
-            await _apply_change_from_data(
-                db, current_user.id, conflict.entity_type, resolution.merged_data
+    elif resolution == "merged":
+        if not payload.merged_data:
+            raise HTTPException(
+                status_code=400, detail="merged_data is required for 'merged' resolution"
             )
-    
+        resolved_data = payload.merged_data
+        await _apply_change_from_data(
+            db, current_user.id, conflict.entity_type, payload.merged_data
+        )
+
     # Mark conflict as resolved
     conflict.is_resolved = True
-    conflict.resolution = resolution.resolution
-    conflict.resolved_data = resolution.merged_data
-    conflict.resolved_at = datetime.utcnow()
-    
+    conflict.resolution = resolution
+    conflict.resolved_data = resolved_data
+    conflict.resolved_at = datetime.now(timezone.utc)
+
     await db.commit()
-    
-    return {"message": "Conflict resolved"}
+
+    return {"message": "Conflict resolved", "resolution": resolution}
 
 
 @router.get("/checkpoint", response_model=SyncCheckpointResponse)
@@ -306,7 +359,7 @@ async def _apply_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
     """Apply bookmark change"""
-    data = item.data
+    data = item.data or {}
     
     # Check if exists
     result = await db.execute(
@@ -319,12 +372,29 @@ async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    if item.operation == "delete":
+        if existing:
+            await db.delete(existing)
+        elif item.server_entity_id:
+            res = await db.execute(
+                select(Bookmark).where(
+                    and_(
+                        Bookmark.user_id == user_id,
+                        Bookmark.id == item.server_entity_id
+                    )
+                )
+            )
+            target = res.scalar_one_or_none()
+            if target:
+                await db.delete(target)
+        return
+
     if existing:
         # Update
         existing.word_id = data.get("word_id", existing.word_id)
         existing.note = data.get("note", existing.note)
         existing.color = data.get("color", existing.color)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         # Create
         bookmark = Bookmark(
@@ -343,7 +413,7 @@ async def _apply_bookmark_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_note_change(db: AsyncSession, user_id: str, item):
     """Apply note change"""
-    data = item.data
+    data = item.data or {}
     
     result = await db.execute(
         select(Note).where(
@@ -355,9 +425,26 @@ async def _apply_note_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    if item.operation == "delete":
+        if existing:
+            await db.delete(existing)
+        elif item.server_entity_id:
+            res = await db.execute(
+                select(Note).where(
+                    and_(
+                        Note.user_id == user_id,
+                        Note.id == item.server_entity_id
+                    )
+                )
+            )
+            target = res.scalar_one_or_none()
+            if target:
+                await db.delete(target)
+        return
+
     if existing:
         existing.content = data.get("content", existing.content)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
     else:
         note = Note(
             user_id=user_id,
@@ -373,7 +460,7 @@ async def _apply_note_change(db: AsyncSession, user_id: str, item):
 
 async def _apply_progress_change(db: AsyncSession, user_id: str, item):
     """Apply progress change"""
-    data = item.data
+    data = item.data or {}
     
     result = await db.execute(
         select(ReadingProgress).where(
@@ -385,22 +472,26 @@ async def _apply_progress_change(db: AsyncSession, user_id: str, item):
     )
     existing = result.scalar_one_or_none()
     
+    now = datetime.now(timezone.utc)
     if existing:
         existing.chapter_id = data.get("chapter_id", existing.chapter_id)
         existing.word_id = data.get("word_id", existing.word_id)
         existing.position_seconds = data.get("position_seconds", existing.position_seconds)
         existing.progress_percent = data.get("progress_percent", existing.progress_percent)
-        existing.last_read_at = datetime.utcnow()
-        existing.last_synced_at = datetime.utcnow()
+        existing.last_read_at = now
+        existing.last_synced_at = now
     else:
         progress = ReadingProgress(
             user_id=user_id,
             book_id=data["book_id"],
             chapter_id=data.get("chapter_id"),
             word_id=data.get("word_id"),
-            position_seconds=data.get("position_seconds", 0),
-            progress_percent=data.get("progress_percent", 0),
-            last_synced_at=datetime.utcnow()
+            position_seconds=data.get("position_seconds", 0.0),
+            progress_percent=data.get("progress_percent", 0.0),
+            total_reading_time_seconds=data.get("total_reading_time_seconds", 0),
+            sessions_count=data.get("sessions_count", 1),
+            last_read_at=now,
+            last_synced_at=now
         )
         db.add(progress)
 
@@ -425,7 +516,131 @@ def _entity_to_dict(entity) -> Dict[str, Any]:
     return {}
 
 
-async def _apply_change_from_data(db: AsyncSession, user_id: str, entity_type: str, data: Dict):
-    """Apply change from conflict resolution"""
-    # Similar to _apply_change but from resolved data
-    pass
+async def _apply_change_from_data(db: AsyncSession, user_id: str, entity_type, data: Dict):
+    """Apply a resolved conflict's data to the server.
+
+    Unlike ``_apply_change`` (which works from a client ``SyncItem`` carrying a
+    ``client_entity_id``), this operates on a plain dict — either the client's
+    original payload or a merged payload chosen during conflict resolution.
+    """
+    if not data:
+        return
+
+    entity = str(getattr(entity_type, "value", entity_type))
+
+    if entity == "bookmark":
+        await _apply_bookmark_data(db, user_id, data)
+    elif entity == "note":
+        await _apply_note_data(db, user_id, data)
+    elif entity == "progress":
+        await _apply_progress_data(db, user_id, data)
+
+
+async def _apply_bookmark_data(db: AsyncSession, user_id: str, data: Dict):
+    """Upsert a bookmark from a plain dict (conflict resolution)."""
+    client_id = data.get("client_id")
+    entity_id = data.get("id")
+
+    query = select(Bookmark).where(Bookmark.user_id == user_id)
+    if client_id:
+        query = query.where(Bookmark.client_id == client_id)
+    elif entity_id:
+        query = query.where(Bookmark.id == entity_id)
+    else:
+        # Fall back to the natural key so we never create a duplicate.
+        query = query.where(
+            and_(
+                Bookmark.book_id == data.get("book_id"),
+                Bookmark.word_id == data.get("word_id"),
+            )
+        )
+
+    existing = (await db.execute(query)).scalar_one_or_none()
+
+    if existing:
+        existing.word_id = data.get("word_id", existing.word_id)
+        existing.note = data.get("note", existing.note)
+        existing.color = data.get("color", existing.color)
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        db.add(Bookmark(
+            user_id=user_id,
+            book_id=data["book_id"],
+            chapter_id=data.get("chapter_id"),
+            word_id=data["word_id"],
+            position_seconds=data.get("position_seconds"),
+            note=data.get("note"),
+            color=data.get("color", "#FFD700"),
+            client_id=client_id,
+            is_synced=True,
+        ))
+
+
+async def _apply_note_data(db: AsyncSession, user_id: str, data: Dict):
+    """Upsert a note from a plain dict (conflict resolution)."""
+    client_id = data.get("client_id")
+    entity_id = data.get("id")
+
+    query = select(Note).where(Note.user_id == user_id)
+    if client_id:
+        query = query.where(Note.client_id == client_id)
+    elif entity_id:
+        query = query.where(Note.id == entity_id)
+    else:
+        query = query.where(
+            and_(
+                Note.book_id == data.get("book_id"),
+                Note.word_id == data.get("word_id"),
+            )
+        )
+
+    existing = (await db.execute(query)).scalar_one_or_none()
+
+    if existing:
+        existing.content = data.get("content", existing.content)
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        db.add(Note(
+            user_id=user_id,
+            book_id=data["book_id"],
+            chapter_id=data.get("chapter_id"),
+            word_id=data["word_id"],
+            content=data["content"],
+            client_id=client_id,
+            is_synced=True,
+        ))
+
+
+async def _apply_progress_data(db: AsyncSession, user_id: str, data: Dict):
+    """Upsert reading progress from a plain dict (conflict resolution)."""
+    book_id = data.get("book_id")
+    if not book_id:
+        return
+
+    existing = (await db.execute(
+        select(ReadingProgress).where(
+            and_(
+                ReadingProgress.user_id == user_id,
+                ReadingProgress.book_id == book_id,
+            )
+        )
+    )).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    if existing:
+        existing.chapter_id = data.get("chapter_id", existing.chapter_id)
+        existing.word_id = data.get("word_id", existing.word_id)
+        existing.position_seconds = data.get("position_seconds", existing.position_seconds)
+        existing.progress_percent = data.get("progress_percent", existing.progress_percent)
+        existing.last_read_at = now
+        existing.last_synced_at = now
+    else:
+        db.add(ReadingProgress(
+            user_id=user_id,
+            book_id=book_id,
+            chapter_id=data.get("chapter_id"),
+            word_id=data.get("word_id"),
+            position_seconds=data.get("position_seconds", 0),
+            progress_percent=data.get("progress_percent", 0),
+            last_synced_at=now,
+        ))

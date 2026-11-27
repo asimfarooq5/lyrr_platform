@@ -144,8 +144,31 @@ class SyncService {
       'client_timestamp': (p.lastReadAt).toIso8601String(),
     }).toList();
 
+    // Get queued delete operations
+    final queuedItems = await _db.getPendingSyncItems(userId);
+    final deleteItems = <Map<String, dynamic>>[];
+    final deleteQueueIds = <String, String>{}; // entityId -> queueId
+
+    for (final q in queuedItems) {
+      if (q.operation == 'delete') {
+        Map<String, dynamic> data = {};
+        try {
+          data = jsonDecode(q.dataJson) as Map<String, dynamic>;
+        } catch (_) {}
+        deleteItems.add({
+          'entity_type': q.entityType,
+          'operation': 'delete',
+          'client_entity_id': q.entityId,
+          'server_entity_id': data['server_entity_id'],
+          'data': data,
+          'client_timestamp': q.createdAt.toIso8601String(),
+        });
+        deleteQueueIds[q.entityId] = q.id;
+      }
+    }
+
     // Combine all items
-    final allItems = [...bookmarkItems, ...noteItems, ...progressItems];
+    final allItems = [...bookmarkItems, ...noteItems, ...progressItems, ...deleteItems];
 
     if (allItems.isEmpty) return;
 
@@ -163,22 +186,34 @@ class SyncService {
       final processed = response.data!['processed'] as List<dynamic>;
       
       for (final clientId in processed) {
-        // Find and update bookmark
-        final bookmark = unsyncedBookmarks.firstWhere(
-          (b) => (b.clientId ?? b.id) == clientId,
-          orElse: () => null as BookmarkModel,
-        );
+        // Look these up by hand rather than with firstWhere: firstWhere has no
+        // nullable result, and the old `orElse: () => null as BookmarkModel`
+        // threw on every id the server reported that was not in the unsynced
+        // list — so the whole sync aborted and nothing was ever marked synced.
+        BookmarkModel? bookmark;
+        for (final b in unsyncedBookmarks) {
+          if ((b.clientId ?? b.id) == clientId) {
+            bookmark = b;
+            break;
+          }
+        }
         if (bookmark != null) {
           await _db.updateBookmarkSyncStatus(bookmark.id, true);
         }
 
-        // Find and update note
-        final note = unsyncedNotes.firstWhere(
-          (n) => (n.clientId ?? n.id) == clientId,
-          orElse: () => null as NoteModel,
-        );
+        NoteModel? note;
+        for (final n in unsyncedNotes) {
+          if ((n.clientId ?? n.id) == clientId) {
+            note = n;
+            break;
+          }
+        }
         if (note != null) {
           await _db.updateNoteSyncStatus(note.id, true);
+        }
+
+        if (deleteQueueIds.containsKey(clientId)) {
+          await _db.removeFromSyncQueue(deleteQueueIds[clientId]!);
         }
       }
 
@@ -356,6 +391,38 @@ class SyncService {
     return note;
   }
 
+  /// Delete bookmark with sync tracking
+  Future<void> deleteBookmark(String bookmarkId, {String? serverEntityId}) async {
+    final userId = _authService.currentUser?.id;
+    await _db.deleteBookmark(bookmarkId);
+    if (userId != null) {
+      await _db.addToSyncQueue(
+        userId: userId,
+        operation: 'delete',
+        entityType: 'bookmark',
+        entityId: bookmarkId,
+        data: {'server_entity_id': serverEntityId},
+      );
+      unawaited(sync());
+    }
+  }
+
+  /// Delete note with sync tracking
+  Future<void> deleteNote(String noteId, {String? serverEntityId}) async {
+    final userId = _authService.currentUser?.id;
+    await _db.deleteNote(noteId);
+    if (userId != null) {
+      await _db.addToSyncQueue(
+        userId: userId,
+        operation: 'delete',
+        entityType: 'note',
+        entityId: noteId,
+        data: {'server_entity_id': serverEntityId},
+      );
+      unawaited(sync());
+    }
+  }
+
   /// Update progress with sync
   Future<void> updateProgress(ReadingProgressModel progress) async {
     final updated = progress.copyWith(
@@ -372,6 +439,3 @@ class SyncService {
     _syncController.add(status);
   }
 }
-
-/// Helper to ignore await
-void unawaited(Future<void> future) {}

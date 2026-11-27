@@ -6,7 +6,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
 import '../../core/config.dart';
 import 'auth_service.dart';
 
@@ -59,10 +58,13 @@ class ApiClient {
   }
 
   http.Client _createClient() {
-    // Always validate TLS certificates. Self-signed certs should be handled
-    // by installing the CA, never by disabling verification in app code.
-    final ioClient = HttpClient();
-    return IOClient(ioClient);
+    // http.Client() already dispatches to the right platform client
+    // (IOClient on native, BrowserClient on web) - wrapping dart:io's
+    // HttpClient directly broke every request on web, since dart:io has no
+    // real implementation there. TLS certificates are still validated by
+    // default; self-signed certs should be handled by installing the CA,
+    // never by disabling verification in app code.
+    return http.Client();
   }
 
   /// Get base headers with authentication
@@ -290,6 +292,29 @@ class ApiClient {
   }
 
   /// Handle HTTP response
+  /// FastAPI puts a validation/refusal payload in `detail`, which is not
+  /// always a string — a 402 for "no listens left" carries a map with the
+  /// price and language. Reading it as a String threw, and the reader saw a
+  /// type error instead of being offered the purchase.
+  static String _detailText(dynamic detail, {String fallback = 'Request failed'}) {
+    if (detail == null) return fallback;
+    if (detail is String) return detail;
+    if (detail is Map) {
+      final message = detail['message'] ?? detail['detail'];
+      if (message is String && message.isNotEmpty) return message;
+      return detail.toString();
+    }
+    if (detail is List && detail.isNotEmpty) {
+      final first = detail.first;
+      if (first is Map) {
+        final msg = first['message'] ?? first['msg'];
+        if (msg is String) return msg;
+      }
+      return detail.toString();
+    }
+    return detail.toString();
+  }
+
   ApiResponse<T> _handleResponse<T>(
     http.Response response,
     T Function(dynamic)? parser,
@@ -309,18 +334,18 @@ class ApiClient {
       return ApiResponse.success(parsedData, statusCode: statusCode);
     } else if (statusCode == 401) {
       final error = _parseError(response.body);
-      final msg = error['detail'] ?? error['message'] ?? 'Session expired. Please login again.';
+      final msg = _detailText(error['detail'] ?? error['message'], fallback: 'Session expired. Please login again.');
       throw ApiException(msg, statusCode: 401);
     } else if (statusCode == 403) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Access denied',
+        _detailText(error['detail'] ?? error['message'], fallback: 'Access denied'),
         statusCode: 403,
       );
     } else if (statusCode == 404) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Resource not found',
+        _detailText(error['detail'] ?? error['message'], fallback: 'Resource not found'),
         statusCode: 404,
       );
     } else if (statusCode == 422) {
@@ -336,20 +361,20 @@ class ApiClient {
         }).join('; ');
         msg = 'Validation failed: $fieldErrors';
       } else {
-        msg = error['detail'] ?? 'Invalid data submitted';
+        msg = _detailText(detail, fallback: 'Invalid data submitted');
       }
       throw ApiException(msg, statusCode: 422, errors: error['errors']);
     } else if (statusCode >= 400 && statusCode < 500) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? error['message'] ?? 'Request failed',
+        _detailText(error['detail'] ?? error['message']),
         statusCode: statusCode,
         errors: error['errors'],
       );
     } else if (statusCode >= 500) {
       final error = _parseError(response.body);
       throw ApiException(
-        error['detail'] ?? 'Server error. Please try again later.',
+        _detailText(error['detail'], fallback: 'Server error. Please try again later.'),
         statusCode: statusCode,
       );
     } else {
@@ -383,6 +408,7 @@ class ApiEndpoints {
   static const String logout = '/auth/logout';
   static const String me = '/auth/me';
   static const String forgotPassword = '/auth/forgot-password';
+  static const String resetPassword = '/auth/reset-password';
   static const String socialLogin = '/auth/social';
 
   // Books
@@ -393,9 +419,15 @@ class ApiEndpoints {
   static String bookLicense(String id) => '/books/$id/license';
   static String bookPurchase(String id) => '/books/$id/purchase';
   static String bookDownload(String id) => '/books/$id/download';
+  // Narration is sold per listen.
+  static String bookLectures(String id) => '/books/$id/lectures';
+  static String bookLecturePurchase(String id) => '/books/$id/lectures/purchase';
+  static String bookLectureStart(String id) => '/books/$id/lectures/start';
+  static const String authors = '/books/authors';
 
   // User Data
   static const String library = '/me/library';
+  static String removeFromLibrary(String bookId) => '/me/library/$bookId';
   static const String bookmarks = '/me/bookmarks';
   static String bookmark(String id) => '/me/bookmarks/$id';
   static const String notes = '/me/notes';
@@ -422,4 +454,13 @@ class ApiEndpoints {
   // Verification (FRS §4)
   static const String verifyRequest = '/auth/verify/request';
   static const String verifyConfirm = '/auth/verify/confirm';
+
+  // Dictionary (Kindle-style tap-to-define)
+  static String dictionary(String word) => '/dictionary/${Uri.encodeComponent(word)}';
+
+  // Collections (Kindle-style shelves)
+  static const String collections = '/me/collections';
+  static String collectionBook(String collectionId, String bookId) =>
+      '/me/collections/$collectionId/books/$bookId';
+  static String deleteCollection(String collectionId) => '/me/collections/$collectionId';
 }

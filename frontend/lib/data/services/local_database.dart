@@ -2,14 +2,11 @@
 /// 
 /// SQLite database using Drift for offline storage of books, bookmarks, notes, etc.
 
-import 'dart:io';
+import 'dart:convert';
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/constants.dart';
 import '../models/book_model.dart';
 import '../models/user_data_model.dart';
 
@@ -30,6 +27,8 @@ class Books extends Table {
   BoolColumn get isFeatured => boolean().withDefault(const Constant(false))();
   BoolColumn get drmEnabled => boolean().withDefault(const Constant(true))();
   BoolColumn get isDownloaded => boolean().withDefault(const Constant(false))();
+  TextColumn get localAudioPath => text().nullable()();
+  TextColumn get localCoverPath => text().nullable()();
   BoolColumn get isPurchased => boolean().withDefault(const Constant(false))();
   RealColumn get progressPercent => real().withDefault(const Constant(0.0))();
   DateTimeColumn get lastReadAt => dateTime().nullable()();
@@ -110,6 +109,9 @@ class ReadingProgress extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+
+  @override
+  List<Set<Column>> get uniqueKeys => [{userId, bookId}];
 }
 
 /// Sync queue table for pending changes
@@ -157,7 +159,60 @@ class LocalDatabase extends _$LocalDatabase {
   LocalDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 4;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(books, books.localAudioPath);
+        await m.addColumn(books, books.localCoverPath);
+      }
+      if (from < 3) {
+        // Some installs were stamped as v2 before the offline columns existed,
+        // so the v1->v2 step above never ran for them and every read of
+        // localAudioPath threw. Add whichever columns are still missing so
+        // those devices repair themselves instead of needing a reinstall.
+        await _addColumnIfMissing(m, books, books.localAudioPath);
+        await _addColumnIfMissing(m, books, books.localCoverPath);
+      }
+      if (from < 4) {
+        // Enforce unique constraint by creating unique index on reading_progress(user_id, book_id)
+        // Clean up any stale duplicate progress entries keeping only the latest last_read_at
+        await m.database.customStatement('''
+          DELETE FROM reading_progress 
+          WHERE id NOT IN (
+            SELECT p1.id FROM reading_progress p1
+            JOIN (
+              SELECT user_id, book_id, MAX(last_read_at) as max_date
+              FROM reading_progress
+              GROUP BY user_id, book_id
+            ) p2 ON p1.user_id = p2.user_id AND p1.book_id = p2.book_id AND p1.last_read_at = p2.max_date
+          )
+        ''');
+        await m.database.customStatement(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_reading_progress_user_book ON reading_progress(user_id, book_id)',
+        );
+      }
+    },
+  );
+
+  /// Adds [column] to [table] only when the live schema does not have it yet,
+  /// so a migration can repair a database that was versioned without it.
+  Future<void> _addColumnIfMissing(
+    Migrator m,
+    TableInfo table,
+    GeneratedColumn column,
+  ) async {
+    final rows = await m.database
+        .customSelect('PRAGMA table_info(${table.actualTableName})')
+        .get();
+    final present = rows.any(
+      (row) => row.data['name'] == column.name,
+    );
+    if (!present) await m.addColumn(table, column);
+  }
 
   // Book operations
   Future<List<BookModel>> getAllBooks() async {
@@ -203,12 +258,25 @@ class LocalDatabase extends _$LocalDatabase {
     );
   }
 
-  Future<void> updateBookDownloadStatus(String bookId, bool isDownloaded) async {
+  Future<void> updateBookDownloadStatus(
+    String bookId,
+    bool isDownloaded, {
+    String? localAudioPath,
+    String? localCoverPath,
+  }) async {
     final query = update(books)..where((b) => b.id.equals(bookId));
     await query.write(BooksCompanion(
       isDownloaded: Value(isDownloaded),
+      localAudioPath: localAudioPath != null ? Value(localAudioPath) : const Value.absent(),
+      localCoverPath: localCoverPath != null ? Value(localCoverPath) : const Value.absent(),
       updatedAt: Value(DateTime.now()),
     ));
+  }
+
+  Future<String?> getLocalAudioPath(String bookId) async {
+    final query = select(books)..where((b) => b.id.equals(bookId));
+    final row = await query.getSingleOrNull();
+    return row?.localAudioPath;
   }
 
   Future<void> deleteBook(String id) async {
@@ -349,8 +417,14 @@ class LocalDatabase extends _$LocalDatabase {
 
   // Progress operations
   Future<ReadingProgressModel?> getProgress(String userId, String bookId) async {
+    // Take the most recent row rather than getSingleOrNull: both the server
+    // sync and local saves write progress, and without a unique constraint a
+    // book can accumulate several rows. getSingleOrNull threw "Too many
+    // elements" on those, which failed the whole book load.
     final query = select(readingProgress)
-      ..where((p) => p.userId.equals(userId) & p.bookId.equals(bookId));
+      ..where((p) => p.userId.equals(userId) & p.bookId.equals(bookId))
+      ..orderBy([(p) => OrderingTerm(expression: p.lastReadAt, mode: OrderingMode.desc)])
+      ..limit(1);
     final row = await query.getSingleOrNull();
     return row != null ? _progressFromRow(row) : null;
   }
@@ -364,9 +438,14 @@ class LocalDatabase extends _$LocalDatabase {
   }
 
   Future<void> insertProgress(ReadingProgressModel progress) async {
+    final existing = await (select(readingProgress)
+          ..where((p) => p.userId.equals(progress.userId) & p.bookId.equals(progress.bookId))
+          ..limit(1))
+        .getSingleOrNull();
+
     await into(readingProgress).insert(
       ReadingProgressCompanion(
-        id: Value(progress.id),
+        id: Value(existing?.id ?? progress.id),
         userId: Value(progress.userId),
         bookId: Value(progress.bookId),
         chapterId: Value(progress.chapterId),
@@ -378,8 +457,8 @@ class LocalDatabase extends _$LocalDatabase {
         lastReadAt: Value(progress.lastReadAt),
         lastSyncedAt: Value(progress.lastSyncedAt),
         deviceId: Value(progress.deviceId),
-        createdAt: Value(progress.createdAt),
-        updatedAt: Value(progress.updatedAt),
+        createdAt: Value(existing?.createdAt ?? progress.createdAt),
+        updatedAt: Value(DateTime.now()),
       ),
       mode: InsertMode.insertOrReplace,
     );
@@ -474,11 +553,11 @@ class LocalDatabase extends _$LocalDatabase {
     bookId: row.bookId,
     title: row.title,
     orderIndex: row.orderIndex,
-    paragraphs: (row.contentJson != null 
-        ? List<Map<String, dynamic>>.from(_decodeJson(row.contentJson!))
-        : [])
-        .map((p) => ParagraphModel.fromJson(p))
-        .toList(),
+    paragraphs: row.contentJson.isNotEmpty
+        ? List<Map<String, dynamic>>.from(_decodeJson(row.contentJson))
+            .map((p) => ParagraphModel.fromJson(p))
+            .toList()
+        : [],
     syncData: row.syncDataJson != null
         ? List<Map<String, dynamic>>.from(_decodeJson(row.syncDataJson!))
             .map((s) => SyncWordModel.fromJson(s))
@@ -552,14 +631,20 @@ class LocalDatabase extends _$LocalDatabase {
     updatedAt: row.updatedAt,
   );
 
-  String _encodeJson(dynamic data) => data.toString();
-  dynamic _decodeJson(String json) => json;
+  String _encodeJson(dynamic data) => jsonEncode(data);
+  dynamic _decodeJson(String json) => jsonDecode(json);
 }
 
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, AppConstants.mainDatabase));
-    return NativeDatabase(file);
-  });
+QueryExecutor _openConnection() {
+  // On native platforms (Android/iOS/desktop) this opens a NativeDatabase
+  // file under the app's documents directory; on web it opens a WasmDatabase
+  // backed by web/sqlite3.wasm + web/drift_worker.js. drift_flutter picks
+  // the right implementation at compile time - see its package docs.
+  return driftDatabase(
+    name: 'lyrr_main',
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+      driftWorker: Uri.parse('drift_worker.js'),
+    ),
+  );
 }

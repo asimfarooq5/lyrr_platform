@@ -2,7 +2,7 @@
 Book models with content, media, and DRM
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, ForeignKey, Text, JSON, Enum
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Float, ForeignKey, Text, JSON, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -44,7 +44,15 @@ class Book(Base):
     book_type = Column(String(50), default="fiction")  # scholar, fiction, non_fiction, children, reference
     
     # Pricing (pay-per-book)
-    price = Column(Float, nullable=True)  # in settings.PAYMENT_CURRENCY
+    price = Column(Float, nullable=True)
+    # Price of one listen, set by the admin when the book is uploaded.
+    lecture_price = Column(Float, nullable=True)  # in settings.PAYMENT_CURRENCY
+
+    # Publishing / catalog metadata (storefront)
+    publisher = Column(String(255), nullable=True)
+    rating = Column(Float, default=0.0)          # average, 0.0 - 5.0
+    rating_count = Column(Integer, default=0)    # number of ratings
+    sales_count = Column(Integer, default=0)     # completed purchases (bestsellers)
 
     # Metadata
     language = Column(Enum(Language), default=Language.EN)
@@ -72,6 +80,9 @@ class Book(Base):
     bookmarks = relationship("Bookmark", back_populates="book")
     notes = relationship("Note", back_populates="book")
     progress = relationship("ReadingProgress", back_populates="book")
+    categories = relationship(
+        "BookCategory", back_populates="book", cascade="all, delete-orphan"
+    )
     
     def __repr__(self):
         return f"<Book {self.title}>"
@@ -81,7 +92,7 @@ class Chapter(Base):
     __tablename__ = "chapters"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     
     # Content
     title = Column(String(255), nullable=False)
@@ -105,11 +116,22 @@ class BookMedia(Base):
     __tablename__ = "book_media"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
+
+    # Narration for a specific chapter. A multi-file audiobook uploads one clip
+    # per chapter; NULL means the clip is book-level (single-file audiobook or
+    # a demo tone).
+    chapter_id = Column(
+        String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     
     # Media info
     audio_url = Column(String(500), nullable=False)
     format = Column(String(10), default="mp3")  # mp3, m4a, wav
+    # Language of this recording. The same book can be narrated more than once
+    # — in another language, or in a local dialect — and each recording is sold
+    # and tracked separately.
+    language = Column(String(16), nullable=False, default="en", server_default="en")
     quality = Column(String(10), default="high")  # low, medium, high
     size_bytes = Column(Integer, nullable=True)
     duration = Column(Integer, nullable=True)  # in seconds
@@ -134,8 +156,8 @@ class UserBook(Base):
     __tablename__ = "user_books"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
-    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    book_id = Column(String(36), ForeignKey("books.id", ondelete="CASCADE"), index=True)
     
     # License
     license_key = Column(String(64), nullable=True)
@@ -152,3 +174,8 @@ class UserBook(Base):
     # Relationships
     user = relationship("User", back_populates="books")
     book = relationship("Book", back_populates="user_books")
+
+    __table_args__ = (
+        # A user holds at most one licence per book.
+        UniqueConstraint("user_id", "book_id", name="uq_user_book"),
+    )

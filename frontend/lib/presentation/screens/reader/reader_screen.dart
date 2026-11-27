@@ -3,23 +3,32 @@
 /// minimal chrome, progress bar, time remaining, and Aa settings
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+import 'engine/reader_content.dart';
+import 'engine/reader_playback_controller.dart';
+import 'engine/tts_service.dart';
 import '../../../providers/app_providers.dart';
+import '../../../core/config.dart';
 import '../../../data/models/book_model.dart';
 import '../../../data/models/user_data_model.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/drm_service.dart';
+import '../../../data/services/sync_service.dart';
 import '../../theme/app_theme.dart';
-import 'widgets/word_span.dart';
 import 'widgets/audio_controls.dart';
 import 'widgets/bookmark_dialog.dart';
 import 'widgets/note_dialog.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/chapter_list_drawer.dart';
+import 'widgets/word_action_sheet.dart';
 
 enum ReadingMode { light, sepia, dark, green }
 
@@ -47,29 +56,55 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   
-  // TTS (Text-to-Speech)
-  final FlutterTts _tts = FlutterTts();
-  bool _isTtsPlaying = false;
-  bool _isTtsMode = false;
-  int _ttsParagraphIndex = 0;
-  int _ttsWordIndex = 0;
+  // On-device narration (chunked TTS) — see engine/reader_playback_controller.dart
+  late final ReaderPlaybackController _playback;
+  ReaderChapterContent? _chapterContent;
+  bool _isTtsPlaying = false; // derived from the controller, for the control bar
+  bool _isTtsMode = false; // true when narration is the active audio source
   
+  // Scaffold.of(context) doesn't work from the app-bar row it's built in
+  // (that context sits above the Scaffold, not below it) — open the
+  // end drawer via this key instead.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   // UI State
   bool _isLoading = true;
   String? _error;
   int _currentChapterIndex = 0;
-  String? _currentWordId;
-  bool _showControls = false; // Kindle-style: hidden by default
+  String? _currentWordId; // tracks the audio-sync playhead / reading position
+  String? _selectedWordId; // tracks the word tapped for highlight/note/define
   bool _isFullscreen = false;
-  bool _showBookmarksDrawer = false;
   
   // Kindle Reading Settings
   double _fontSize = 18.0;
   double _lineHeight = 1.5;
   double _margin = 24.0;
   ReadingMode _readingMode = ReadingMode.light;
-  double _playbackSpeed = 1.0;
+  /// Narration pace. Fixed: the app shipped a speed picker, but changing pace
+  /// restarted the current sentence and pulled the word highlighting out of
+  /// step, so one comfortable rate is used throughout.
+  static const double _kFixedSpeed = 0.5;
+  double _playbackSpeed = _kFixedSpeed;
+  double _voicePitch = 1.0; // FRS §7: voice tone adjustment
+  double _volume = 1.0; // FRS §7: volume control
   bool _autoScroll = true;
+  bool _showToolbars = true; // Kindle-style immersive reading mode (toggled by center tap)
+  bool _dismissAccessNotice = false;
+  String? _audioError;
+  bool _noAudio = false; // book ships without narration — narrate on-device
+  /// Narration sold per listen: how many the reader holds, and what one costs.
+  /// Null until asked; a book with no recording stays null.
+  int? _listensLeft;
+  double? _listenPrice;
+  String? _loadedAudioUrl; // clip currently loaded into the player
+
+  /// Shortlist size for the narration-voice picker, and the names those
+  /// entries are shown under (device voices have no human-friendly names).
+  static const int _maxCuratedVoices = 5;
+  static const List<String> _voiceNames = [
+    'Alice', 'Daniel', 'Emma', 'George', 'Sophia', 'Liam', 'Nora', 'Owen',
+  ];
+  bool _showAllVoices = false;
   Color _highlightColor = AppColors.primary;
   bool _showTimeRemaining = true;
   bool _showPageNumber = true;
@@ -81,7 +116,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   
   // Scroll
   final _scrollController = ScrollController();
-  final Map<String, GlobalKey> _wordKeys = {};
+
+  /// Page-turning state.
+  ///
+  /// The book is laid out as pages rather than one endless scroll. A scroll
+  /// has no sense of "where am I" — no page count, no place to stop — and is
+  /// the main reason the reader did not feel like a book. Pages give a fixed
+  /// measure of progress and a natural place to rest.
+  final _pageController = PageController();
+  int _pageIndex = 0;
+  /// Paragraph indices for each page, rebuilt whenever the text, type size,
+  /// page width or height changes.
+  List<List<int>> _pages = const [];
+  double _lastPageWidth = 0;
+  double _lastPageHeight = 0;
+  double _lastPageFontSize = 0;
+  double _lastPageLineHeight = 0;
+  // One key per paragraph, so auto-scroll can bring the paragraph containing
+  // the current position into view (keyed by chapter id + paragraph index).
+  final Map<String, GlobalKey> _paraKeys = {};
   double _scrollPercent = 0.0;
   double _previousScrollPercent = 0.0;
   
@@ -92,6 +145,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // Sync
   Timer? _syncTimer;
   Timer? _progressTimer;
+
+  // Sleep timer
+  Timer? _sleepTimer;
+  Duration? _sleepTimerRemaining;
+  bool _sleepTimerEndOfChapter = false;
+
+  // Captured in initState() so dispose() can save progress without touching
+  // ref (which Riverpod invalidates before dispose() runs).
+  late final UserDataRepository _userDataRepoForDispose;
+  late final SyncService _syncServiceForDispose;
+  StreamSubscription? _positionSub;
+  StreamSubscription? _durationSub;
+  StreamSubscription? _playerStateSub;
 
   // Reading mode backgrounds
   Color get _readingBg {
@@ -108,28 +174,52 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return AppColors.textPrimaryLight;
   }
 
+  bool get _isDesktop =>
+      !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+
   Color get _readingSubtextColor {
     if (_readingMode == ReadingMode.dark) return AppColors.textSecondaryDark;
     return AppColors.textSecondaryLight;
   }
   
+  /// Every callback here can fire after the user has already navigated away
+  /// (a stream event, a timer tick, an async gap) - calling setState() on an
+  /// unmounted State throws, and did throw in practice on every "open a
+  /// book, immediately go back" cycle. This is the one place that decides
+  /// whether it's still safe to update the UI.
+  void _safeSetState(VoidCallback fn) {
+    if (mounted) setState(fn);
+  }
+
   @override
   void initState() {
     super.initState();
+    // Cache the providers dispose() needs. ref becomes unusable once
+    // dispose() starts, so anything dispose()-time code reads from it must
+    // be captured while the widget is still fully alive.
+    _userDataRepoForDispose = ref.read(userDataRepositoryProvider);
+    _syncServiceForDispose = ref.read(syncServiceProvider);
+    _playback = ReaderPlaybackController();
+    _playback.addListener(_onPlaybackChanged);
+    _playback.onChapterFinished = _onNarrationChapterFinished;
     _loadBook();
     _setupAudioListeners();
-    _setupTtsListeners();
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _playerStateSub?.cancel();
     _audioPlayer.dispose();
-    _tts.stop();
+    _playback.removeListener(_onPlaybackChanged);
+    _playback.dispose();
     _scrollController.dispose();
     _syncTimer?.cancel();
     _progressTimer?.cancel();
-    _saveProgress();
+    _sleepTimer?.cancel();
+    _saveProgressOnDispose();
     super.dispose();
   }
 
@@ -142,223 +232,450 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
+  /// Progress now comes from the page being read rather than a scroll offset —
+  /// page 3 of 12 is a position a reader can hold on to.
+  void _onPageChanged(int pageIndex) {
+    if (_pages.isEmpty) return;
+    _previousScrollPercent = _scrollPercent;
+    final withinChapter = _pages.length <= 1
+        ? 0.0
+        : pageIndex / (_pages.length - 1);
+    final chapters = math.max(_chapters.length, 1);
+    _scrollPercent =
+        ((_currentChapterIndex + withinChapter) / chapters).clamp(0.0, 1.0);
+
+    // Track dynamic reading speed (WPM) to power accurate time remaining
+    if (_chapterContent != null && pageIndex > 0 && pageIndex < _pages.length) {
+      final prevPageIndices = _pages[pageIndex - 1];
+      var wordsOnPrevPage = 0;
+      for (final pIdx in prevPageIndices) {
+        if (pIdx < _chapterContent!.paragraphs.length) {
+          final pText = _chapterContent!.paragraphs[pIdx].text.trim();
+          if (pText.isNotEmpty) {
+            wordsOnPrevPage += pText.split(RegExp(r'\s+')).length;
+          }
+        }
+      }
+      _wordsReadThisSession += wordsOnPrevPage;
+      final elapsedMinutes = DateTime.now().difference(_sessionStart).inSeconds / 60.0;
+      if (elapsedMinutes >= 0.5 && _wordsReadThisSession > 20) {
+        final currentSpeed = _wordsReadThisSession / elapsedMinutes;
+        _readingSpeed = (0.7 * _readingSpeed + 0.3 * currentSpeed).clamp(100.0, 600.0);
+      }
+    }
+  }
+
+  /// Moves the open book one page forward or back, turning to the next or
+  /// previous chapter at either end — the way a reader expects a tap on the
+  /// margin to behave.
+  void _turnPage(int delta) {
+    if (_pages.isEmpty) return;
+    final target = _pageIndex + delta;
+    if (target >= 0 && target < _pages.length) {
+      _pageController.animateToPage(
+        target,
+        duration: AppAnimations.fast,
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    if (delta > 0) {
+      _goToNextChapter();
+    } else {
+      _goToPreviousChapter();
+    }
+  }
+
   void _setupAudioListeners() {
-    _audioPlayer.positionStream.listen((position) {
-      setState(() {
+    _positionSub = _audioPlayer.positionStream.listen((position) {
+      _safeSetState(() {
         _currentPosition = position;
       });
-      _syncTextToAudio(position.inMilliseconds / 1000.0);
+      _onAudioTick(position);
     });
 
-    _audioPlayer.durationStream.listen((duration) {
+    _durationSub = _audioPlayer.durationStream.listen((duration) {
       if (duration != null) {
-        setState(() {
+        _safeSetState(() {
           _totalDuration = duration;
         });
       }
     });
 
-    _audioPlayer.playerStateStream.listen((state) {
-      setState(() {
+    _playerStateSub = _audioPlayer.playerStateStream.listen((state) {
+      _safeSetState(() {
         _isPlaying = state.playing;
       });
-    });
-  }
-
-  void _setupTtsListeners() {
-    _tts.setCompletionHandler(() {
-      _onTtsParagraphComplete();
-    });
-
-    _tts.setProgressHandler((String text, int startOffset, int endOffset, String word) {
-      _onTtsWordProgress(word);
-    });
-
-    _tts.setErrorHandler((msg) {
-      setState(() {
-        _isTtsPlaying = false;
-        _isTtsMode = false;
-      });
-    });
-  }
-
-  void _onTtsWordProgress(String word) {
-    if (_chapters.isEmpty) return;
-    final chapter = _chapters[_currentChapterIndex];
-    if (_ttsParagraphIndex >= chapter.paragraphs.length) return;
-
-    final paragraph = chapter.paragraphs[_ttsParagraphIndex];
-    // Search forward from current position for matching word
-    for (int i = _ttsWordIndex; i < paragraph.words.length; i++) {
-      if (paragraph.words[i].text.toLowerCase() == word.toLowerCase()) {
-        setState(() {
-          _currentWordId = paragraph.words[i].id;
-          _ttsWordIndex = i + 1;
-        });
-        if (_autoScroll) _scrollToWord(paragraph.words[i].id);
-        return;
+      if (state.processingState == ProcessingState.completed) {
+        _onNarrationChapterFinished();
       }
-    }
-    // Fallback: try searching from beginning of paragraph
-    for (int i = 0; i < _ttsWordIndex && i < paragraph.words.length; i++) {
-      if (paragraph.words[i].text.toLowerCase() == word.toLowerCase()) {
-        setState(() {
-          _currentWordId = paragraph.words[i].id;
-          _ttsWordIndex = i + 1;
-        });
-        if (_autoScroll) _scrollToWord(paragraph.words[i].id);
-        return;
-      }
-    }
+    });
   }
 
-  void _onTtsParagraphComplete() {
-    if (_chapters.isEmpty) return;
-    final chapter = _chapters[_currentChapterIndex];
-    _ttsParagraphIndex++;
-
-    if (_ttsParagraphIndex < chapter.paragraphs.length) {
-      // Read next paragraph
-      _ttsWordIndex = 0;
-      final text = chapter.paragraphs[_ttsParagraphIndex].fullText;
-      _tts.speak(text);
-    } else if (_currentChapterIndex < _chapters.length - 1) {
-      // Move to next chapter
-      setState(() {
-        _currentChapterIndex++;
-        _ttsParagraphIndex = 0;
-        _ttsWordIndex = 0;
-      });
-      if (mounted) _scrollController.animateTo(0,
-          duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
-      final nextChapter = _chapters[_currentChapterIndex];
-      if (nextChapter.paragraphs.isNotEmpty) {
-        _tts.speak(nextChapter.paragraphs[0].fullText);
-      }
-    } else {
-      // Finished reading the whole book
-      setState(() {
-        _isTtsPlaying = false;
-        _isTtsMode = false;
-        _ttsParagraphIndex = 0;
-        _ttsWordIndex = 0;
-        _currentWordId = null;
-      });
-    }
-  }
-
-  String _ttsLanguageCode(String? lang) {
-    switch (lang?.toLowerCase()) {
-      case 'fr': return 'fr-FR';
-      case 'es': return 'es-ES';
-      case 'de': return 'de-DE';
-      case 'it': return 'it-IT';
-      case 'pt': return 'pt-PT';
-      case 'ru': return 'ru-RU';
-      case 'ja': return 'ja-JP';
-      case 'zh': return 'zh-CN';
-      case 'ar': return 'ar-SA';
-      default: return 'en-US';
-    }
-  }
-
-  Future<void> _startTts() async {
-    if (_chapters.isEmpty) return;
-
-    // Pause audiobook if playing
+  void _pausePlayback() {
     if (_isPlaying) {
-      await _audioPlayer.pause();
+      _audioPlayer.pause();
     }
-
-    // Find the first visible paragraph based on scroll position
-    final chapter = _chapters[_currentChapterIndex];
-    if (chapter.paragraphs.isEmpty) return;
-
-    // Estimate which paragraph is visible based on scroll percent
-    _ttsParagraphIndex = (_scrollPercent * chapter.paragraphs.length).floor().clamp(0, chapter.paragraphs.length - 1);
-    _ttsWordIndex = 0;
-
-    await _tts.setLanguage(_ttsLanguageCode(_book?.language));
-    await _tts.setSpeechRate(_playbackSpeed);
-
-    setState(() {
-      _isTtsMode = true;
-      _isTtsPlaying = true;
-    });
-
-    final text = chapter.paragraphs[_ttsParagraphIndex].fullText;
-    await _tts.speak(text);
-  }
-
-  Future<void> _stopTts() async {
-    await _tts.stop();
-    setState(() {
-      _isTtsPlaying = false;
-      _isTtsMode = false;
-      _ttsParagraphIndex = 0;
-      _ttsWordIndex = 0;
-      _currentWordId = null;
-    });
-  }
-
-  Future<void> _toggleTts() async {
     if (_isTtsPlaying) {
-      await _stopTts();
-    } else {
-      await _startTts();
+      _playback.pause();
     }
+  }
+
+  void _startSleepTimer(int minutes, {bool endOfChapter = false}) {
+    _sleepTimer?.cancel();
+    if (endOfChapter) {
+      _safeSetState(() {
+        _sleepTimerEndOfChapter = true;
+        _sleepTimerRemaining = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sleep timer set: Will stop at the end of this chapter'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    _safeSetState(() {
+      _sleepTimerEndOfChapter = false;
+      _sleepTimerRemaining = Duration(minutes: minutes);
+    });
+
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_sleepTimerRemaining == null || _sleepTimerRemaining! <= Duration.zero) {
+        timer.cancel();
+        _pausePlayback();
+        _safeSetState(() {
+          _sleepTimerRemaining = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sleep timer ended: Narration paused'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        _safeSetState(() {
+          _sleepTimerRemaining = _sleepTimerRemaining! - const Duration(seconds: 1);
+        });
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sleep timer set for $minutes minutes'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _safeSetState(() {
+      _sleepTimerRemaining = null;
+      _sleepTimerEndOfChapter = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sleep timer turned off'), duration: Duration(seconds: 2)),
+    );
+  }
+
+  /// Mirrors the playback controller's position into the bits of screen state
+  /// the rest of the reader still needs: the word id that bookmarks, notes and
+  /// progress are keyed by, and the auto-scroll follow.
+  void _onPlaybackChanged() {
+    final wordId = _playback.currentWordId;
+    final wordChanged = wordId != _currentWordId;
+    _currentWordId = wordId;
+    if (wordChanged && _autoScroll && wordId != null) {
+      _scrollToOffset(_playback.currentOffset);
+    }
+
+    // A transient TTS failure (engine errored mid-sentence) is shown once,
+    // then acknowledged so it doesn't reappear on the next rebuild.
+    final ttsError = _playback.ttsErrorMessage;
+    if (ttsError != null) {
+      _playback.clearTtsError();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ttsError), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+
+    _safeSetState(() {
+      _isTtsPlaying = _playback.isPlaying;
+      _isTtsMode = _usesOnDeviceNarration;
+    });
+  }
+
+  /// Narration reached the end of the chapter — advance exactly like the
+  /// audio follow does.
+  void _onNarrationChapterFinished() {
+    if (!mounted) return;
+    if (_sleepTimerEndOfChapter) {
+      _sleepTimerEndOfChapter = false;
+      _pausePlayback();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sleep timer: Chapter finished, narration paused')),
+      );
+      return;
+    }
+    if (_currentChapterIndex < _chapters.length - 1) {
+      _goToNextChapter();
+    }
+  }
+
+  /// Builds the offset index for the current chapter and hands it to the
+  /// controller, so highlighting, progress and chunking all work in one
+  /// coordinate space whether we're following audio or narrating on-device.
+  void _rebuildChapterContent({bool restorePosition = false}) {
+    if (_chapters.isEmpty) {
+      _chapterContent = null;
+      return;
+    }
+
+    final content = ReaderChapterContent.fromChapter(
+      _chapters[_currentChapterIndex],
+    );
+    _chapterContent = content;
+
+    // Play the uploaded narration whenever there is real audio for this book;
+    // the sync table only drives word-level highlighting. Requiring sync data
+    // here meant an audiobook uploaded through the admin was ignored (there is
+    // no tooling to author timings), and the reader silently fell back to the
+    // device voice instead of the narrator the publisher shipped.
+    // A book with no audio — or only the demo placeholder tone — still
+    // narrates on-device.
+    _playback.setContent(
+      content,
+      audiobook: !_usesOnDeviceNarration,
+    );
+
+    if (restorePosition) {
+      final savedWord = content.wordById(_progress?.wordId);
+      if (savedWord != null) _playback.seekToOffset(savedWord.start);
+    }
+
+    _currentWordId = _playback.currentWordId;
+  }
+
+  /// True when the phone's own narration is this book's audio source — either
+  /// there is no audio at all, or the only clip is the demo placeholder tone.
+  bool get _usesOnDeviceNarration => _noAudio || _audioError != null || _isPlaceholderAudio;
+
+  /// The explicit "read aloud" toggle: stops narration if running, otherwise
+  /// pauses the audiobook and starts narrating from the current position.
+  Future<void> _toggleTts() async {
+    if (_playback.isPlaying) {
+      await _playback.stop();
+      return;
+    }
+    if (_isPlaying) await _audioPlayer.pause();
+    await _playback.play();
   }
 
   Future<void> _loadBook() async {
-    setState(() {
+    _safeSetState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
       final booksRepo = ref.read(booksRepositoryProvider);
-      final userDataRepo = ref.read(userDataRepositoryProvider);
-      final db = ref.read(databaseProvider);
 
-      final bookData = await booksRepo.getBook(widget.bookId);
-      if (bookData != null) {
-        _book = BookModel.fromJson(bookData);
+      // Offline-first: read a downloaded copy straight from the local database.
+      // Going to the network for a title already on the device made opening it
+      // as slow as downloading it, because the content and sync endpoints carry
+      // the entire text and every word timing.
+      Map<String, dynamic>? bookData;
+      var loadedLocally = false;
+      if (!kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final localBook = await db.getBook(widget.bookId);
+        if (localBook != null && localBook.isDownloaded) {
+          final localChapters = await db.getChapters(widget.bookId);
+          if (localChapters.isNotEmpty) {
+            _book = localBook;
+            _chapters = localChapters;
+            // A downloaded copy only exists because the book was added to the
+            // library, so it is owned by definition — no gate needed offline.
+            // Timings travel with the chapters, so no separate sync fetch.
+            _syncData = [
+              for (final c in localChapters) ...(c.syncData ?? const <SyncWordModel>[]),
+            ];
+            loadedLocally = true;
+          }
+        }
       }
 
-      final chaptersData = await booksRepo.getBookContent(widget.bookId);
-      _chapters = chaptersData.map((c) => ChapterModel.fromJson(c)).toList();
+      if (!loadedLocally) {
+        bookData = await booksRepo.getBook(widget.bookId);
+        if (bookData != null) {
+          _book = BookModel.fromJson(bookData);
+        }
 
-      final syncData = await booksRepo.getBookSync(widget.bookId);
-      _syncData = syncData.map((s) => SyncWordModel.fromJson(s)).toList();
+        // A book only opens once it is in the reader's library. There is no
+        // free or sample path any more.
+        if (!await _isInLibrary()) {
+          _safeSetState(() => _isLoading = false);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _showNotInLibraryDialog());
+          return;
+        }
 
-      final bookmarksData = await userDataRepo.getBookmarks(widget.bookId);
-      _bookmarks = bookmarksData.map((b) => BookmarkModel.fromJson(b)).toList();
+        final content = await booksRepo.getBookContent(widget.bookId);
+        _chapters = content.map((c) => ChapterModel.fromJson(c)).toList();
 
-      final notesData = await userDataRepo.getNotes(widget.bookId);
-      _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
+        // The content endpoint carries text and timings; the narration URL lives
+        // on the book detail (it is per chapter for a multi-file audiobook), so
+        // fold it in here.
+        final audioByChapter = <String, String?>{};
+        for (final ch in (bookData?['chapters'] as List? ?? [])) {
+          if (ch is Map<String, dynamic>) {
+            audioByChapter[ch['id'] as String] = ch['audio_url'] as String?;
+          }
+        }
+        if (audioByChapter.isNotEmpty) {
+          _chapters = [
+            for (final c in _chapters)
+              audioByChapter.containsKey(c.id)
+                  ? ChapterModel(
+                      id: c.id,
+                      bookId: c.bookId,
+                      title: c.title,
+                      orderIndex: c.orderIndex,
+                      paragraphs: c.paragraphs,
+                      syncData: c.syncData,
+                      audioUrl: audioByChapter[c.id],
+                      createdAt: c.createdAt,
+                      updatedAt: c.updatedAt,
+                    )
+                  : c,
+          ];
+        }
 
-      final progressData = await userDataRepo.getProgress(widget.bookId);
-      if (progressData != null) {
-        _progress = ReadingProgressModel.fromJson(progressData);
-        _currentChapterIndex = _getChapterIndexForWord(_progress!.wordId);
+        // /content already carries each chapter's timings, so a separate sync
+        // fetch only repeated ~1.5 MB of the same data and cost another
+        // round-trip on every chapter open.
+        _syncData = [
+          for (final c in _chapters) ...(c.syncData ?? const <SyncWordModel>[]),
+        ];
+      }
+      // Whether this book's narration is sold, and whether the reader holds
+      // any — shown before the play button so "read-only" is never a surprise.
+      try {
+        final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+        final recordings = (info['recordings'] as List?) ?? const [];
+        if (recordings.isNotEmpty) {
+          _listenPrice = (info['price_per_listen'] as num?)?.toDouble();
+          _listensLeft = recordings.fold<int>(
+              0, (sum, r) => sum + ((r['listens_left'] as num?)?.toInt() ?? 0));
+        }
+      } catch (_) {
+        // Narration details are optional; reading works without them.
       }
 
-      await _loadAudio();
-
-      setState(() {
+      // First paint: the text is ready — show it now. The narration clip and
+      // the reader's saved position/bookmarks fold in shortly after (see
+      // _loadAudioAndUserData) and correct the narration mode, without holding
+      // the page back.
+      _playback.setAudioSync(_syncData
+          .map((s) => AudioSyncEntry(id: s.id, start: s.start, end: s.end))
+          .toList());
+      _rebuildChapterContent();
+      _safeSetState(() {
         _isLoading = false;
       });
+
+      unawaited(_loadAudioAndUserData(loadedLocally));
 
       _progressTimer = Timer.periodic(const Duration(seconds: 10), (_) {
         _saveProgress();
         _trackReadingSpeed();
       });
     } catch (e) {
-      setState(() {
+      _safeSetState(() {
         _error = 'Failed to load book: $e';
         _isLoading = false;
       });
     }
+  }
+
+  /// Whether this book is in the reader's library. The book payload's own
+  /// `is_purchased` flag is not always populated, so the library list — the
+  /// same source the Library tab uses — is the source of truth. A network
+  /// hiccup must not lock a reader out of a book they own, so an error is
+  /// treated as owned (narration still needs a listen to play).
+  Future<bool> _isInLibrary() async {
+    if (_book?.isPurchased ?? false) return true;
+    try {
+      final items = await ref.read(userDataRepositoryProvider).getLibrary();
+      return items.any(
+        (item) => item is Map && item['id']?.toString() == widget.bookId,
+      );
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Loads the narration clip and the reader's bookmarks/notes/position after
+  /// the text is already on screen, then folds them in.
+  Future<void> _loadAudioAndUserData(bool loadedLocally) async {
+    final userDataRepo = ref.read(userDataRepositoryProvider);
+
+    // A stuck platform channel (e.g. no audio backend on this platform) must
+    // never take the reader down; give audio a bounded window and move on.
+    try {
+      await _loadAudio().timeout(const Duration(seconds: 8));
+    } catch (e) {
+      if (mounted) _safeSetState(() => _audioError = 'Audio unavailable: $e');
+    }
+
+    // A downloaded book keeps its bookmarks, notes and position on device; the
+    // network copy fetches them. Either way a failure here is not fatal.
+    try {
+      if (loadedLocally && !kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final user = ref.read(currentUserProvider);
+        _bookmarks = await db.getBookmarks(widget.bookId);
+        _notes = await db.getNotes(widget.bookId);
+        if (user != null) {
+          final localProgress = await db.getProgress(user.id, widget.bookId);
+          if (localProgress != null) _progress = localProgress;
+        }
+      } else {
+        final bookmarksData = await userDataRepo.getBookmarks(widget.bookId);
+        _bookmarks = bookmarksData.map((b) => BookmarkModel.fromJson(b)).toList();
+
+        final notesData = await userDataRepo.getNotes(widget.bookId);
+        _notes = notesData.map((n) => NoteModel.fromJson(n)).toList();
+
+        final progressData = await userDataRepo.getProgress(widget.bookId);
+        if (progressData != null) {
+          _progress = ReadingProgressModel.fromJson(progressData);
+        }
+      }
+    } catch (_) {
+      // Bookmarks and notes are supplementary; reading continues without them.
+    }
+
+    if (!mounted) return;
+
+    // Narration mode and the saved position are both known now — rebuild the
+    // chapter index with the right mode and restore the reading position.
+    _rebuildChapterContent(restorePosition: _progress?.wordId != null);
+
+    // On-device narration warms up in the background.
+    _playback.language = TtsService.languageCodeFor(_book?.language);
+    unawaited(_playback.initializeTts().then((_) async {
+      // initializeTts resets the engine to its own default rate, which reads as
+      // rushed; apply the fixed pace so narration sounds the same every time.
+      await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
+      if (mounted) _onPlaybackChanged();
+    }));
   }
 
   void _trackReadingSpeed() {
@@ -398,129 +715,820 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return 'Page $currentPage of $totalPages';
   }
 
+  /// Narration for the chapter currently open, as an absolute URL.
+  String? get _currentChapterAudio {
+    if (_chapters.isEmpty || _currentChapterIndex >= _chapters.length) return null;
+    final path = _chapters[_currentChapterIndex].audioUrl;
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http')) return path;
+    final base = AppConfig.apiBaseUrl.replaceAll('/api/v1', '');
+    return '$base$path';
+  }
+
+  /// Loads a remote clip into the player with the Bearer token the media server
+  /// expects. just_audio sends no Authorization header on its own, so a plain
+  /// setUrl against an auth-protected URL loads but fails on play with a bare
+  /// "source error".
+  Future<void> _setAudioUrl(String url) async {
+    final token = await ref.read(authServiceProvider).getAccessToken();
+    await _audioPlayer.setAudioSource(
+      AudioSource.uri(
+        Uri.parse(url),
+        headers: token == null ? null : {'Authorization': 'Bearer $token'},
+      ),
+    );
+  }
+
   Future<void> _loadAudio() async {
+    _safeSetState(() {
+      _audioError = null;
+    });
     try {
-      final drmService = ref.read(drmServiceProvider);
-      final license = await drmService.getLicense(widget.bookId);
-      if (license?.downloadUrl != null) {
-        await _audioPlayer.setUrl(license!.downloadUrl!);
+      // Ask the server what narration this book actually has before trusting
+      // anything on disk. A book whose narration was withdrawn still has the
+      // old clip downloaded, and playing it showed a meaningless "0:12" bar
+      // over a book that narrates perfectly well with the device voice.
+      DRMLicense? license;
+      var serverReachable = true;
+      try {
+        license = await ref.read(drmServiceProvider).getLicense(widget.bookId);
+      } catch (_) {
+        serverReachable = false;
       }
+
+      if (serverReachable && license?.downloadUrl == null && _currentChapterAudio == null) {
+        // No narration on the server: forget any stale local copy and let the
+        // reader narrate on-device.
+        if (!kIsWeb) {
+          final db = ref.read(databaseProvider);
+          final localPath = await db.getLocalAudioPath(widget.bookId);
+          if (localPath != null && localPath.isNotEmpty) {
+            final stale = File(localPath);
+            if (await stale.exists()) await stale.delete();
+            await db.updateBookDownloadStatus(widget.bookId, true, localAudioPath: '');
+          }
+        }
+        _safeSetState(() => _noAudio = true);
+        return;
+      }
+
+      // Offline, or the book does have narration: prefer the downloaded file so
+      // playback works without a connection (FRS §9). Not applicable on web —
+      // downloads never land there in the first place.
+      if (!kIsWeb) {
+        final db = ref.read(databaseProvider);
+        final localPath = await db.getLocalAudioPath(widget.bookId);
+        if (localPath != null && localPath.isNotEmpty && await File(localPath).exists()) {
+          await _audioPlayer.setFilePath(localPath);
+          return;
+        }
+      }
+
+      // A multi-file audiobook uploads one clip per chapter — play the one
+      // belonging to the open chapter. Books with a single book-level clip
+      // fall through to the licence below.
+      final chapterAudio = _currentChapterAudio;
+      if (chapterAudio != null) {
+        await _setAudioUrl(chapterAudio);
+        _loadedAudioUrl = chapterAudio;
+        return;
+      }
+
+      if (license?.downloadUrl == null) {
+        // Not an error: this book simply has no narration, so the reader
+        // narrates on-device. Showing a retry banner for it would be noise.
+        _safeSetState(() => _noAudio = true);
+        return;
+      }
+      await _setAudioUrl(license!.downloadUrl!);
+      _loadedAudioUrl = license.downloadUrl;
     } catch (e) {
-      // Continue without audio
+      _loadedAudioUrl = null;
+      if (mounted) _safeSetState(() => _audioError = 'Could not load audio: $e');
     }
   }
 
-  int _getChapterIndexForWord(String? wordId) {
-    if (wordId == null || _chapters.isEmpty) return 0;
-    for (int i = 0; i < _chapters.length; i++) {
-      final words = _chapters[i].allWords;
-      if (words.any((w) => w.id == wordId)) return i;
+  /// Maps a playback-speed multiplier (0.5x–2.5x) onto flutter_tts's speech-rate
+  /// scale (0.0–1.0).
+  ///
+  /// These are different scales: passing the multiplier straight through made
+  /// 1.0x already the maximum speech rate, so narration sounded rushed even at
+  /// the default setting. Scale around the platform default instead, and cap it
+  /// below the top of the range so speech stays intelligible.
+  double _speechRateFor(double speed) =>
+      (TtsService.defaultSpeechRate * speed).clamp(0.1, 0.75);
+
+  /// Lets the reader pick a different narration voice.
+  ///
+  /// The list comes from the platform TTS engine, so it reflects whatever
+  /// voices are installed on the device (and only those that exist — no point
+  /// offering a narrator the phone cannot produce).
+  Future<void> _chooseVoice() async {
+    final voices = await _playback.availableVoices();
+    if (!mounted) return;
+
+    if (voices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No alternative voices found on this device.'),
+        ),
+      );
+      return;
     }
-    return 0;
+
+    // Prefer voices matching the book's language, but keep the rest reachable.
+    // Some Android engines report an empty `locale` and only encode the
+    // language in the voice name (e.g. "en-au-x-aud-local"), so match on both.
+    final bookLang = TtsService.languageCodeFor(_book?.language).split('-').first;
+    bool matchesBook(Map<String, String> v) {
+      final locale = (v['locale'] ?? '').toLowerCase();
+      final name = (v['name'] ?? '').toLowerCase();
+      return locale.startsWith(bookLang) ||
+          name.startsWith('$bookLang-') ||
+          name.startsWith('${bookLang}_') ||
+          name == bookLang;
+    }
+
+    final matching = voices.where(matchesBook).toList();
+    final others = voices.where((v) => !matchesBook(v)).toList();
+
+    // Device TTS voices have no human names (e.g. "en-us-x-sfg#male_1-local"),
+    // and there can be dozens. Offer a short, named shortlist instead — the
+    // way assistant apps present voices — with the full list one tap away.
+    final curated = matching.take(_maxCuratedVoices).toList();
+
+    final selected = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _readingBg,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final showAll = _showAllVoices;
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                    child: Text(
+                      'Narration voice',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _readingTextColor,
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        _voiceTile(
+                          sheetContext,
+                          const {'name': '', 'locale': ''},
+                          title: 'System default',
+                          subtitle: 'Use the device default',
+                          leadingIcon: Icons.settings_voice,
+                        ),
+                        if (!showAll) ...[
+                          if (curated.isNotEmpty)
+                            _voiceSectionHeader('Voices'),
+                          for (var i = 0; i < curated.length; i++)
+                            _voiceTile(sheetContext, curated[i], nameIndex: i),
+                          if (matching.length > curated.length ||
+                              others.isNotEmpty)
+                            ListTile(
+                              leading: Icon(Icons.more_horiz,
+                                  color: _readingSubtextColor),
+                              title: Text(
+                                'Show all voices (${voices.length})',
+                                style: TextStyle(color: AppColors.primary),
+                              ),
+                              onTap: () =>
+                                  setSheetState(() => _showAllVoices = true),
+                            ),
+                        ] else ...[
+                          if (matching.isNotEmpty)
+                            _voiceSectionHeader('For this book\'s language'),
+                          ...matching.map((v) => _voiceTile(sheetContext, v)),
+                          if (others.isNotEmpty)
+                            _voiceSectionHeader('Other languages'),
+                          ...others.map((v) => _voiceTile(sheetContext, v)),
+                          ListTile(
+                            leading: Icon(Icons.expand_less,
+                                color: _readingSubtextColor),
+                            title: Text('Show fewer',
+                                style: TextStyle(color: AppColors.primary)),
+                            onTap: () =>
+                                setSheetState(() => _showAllVoices = false),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    _showAllVoices = false;
+
+    if (selected == null) return;
+
+    if (selected['name']!.isEmpty) {
+      // "System default" — re-initialising clears any explicit voice.
+      await _playback.setVoice('', '');
+      await _playback.initializeTts();
+      // Re-initialising also resets the rate, so reapply the fixed pace.
+      await _playback.setSpeechRate(_speechRateFor(_kFixedSpeed));
+      _safeSetState(() {});
+      return;
+    }
+
+    await _playback.setVoice(selected['name']!, selected['locale']!);
+    _safeSetState(() {});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Voice set to ${_friendlyVoiceName(selected, curated)}')),
+    );
   }
 
-  void _syncTextToAudio(double positionSeconds) {
-    if (_syncData.isEmpty) return;
-    final word = _findWordAtPosition(positionSeconds);
-    if (word != null && word.id != _currentWordId) {
-      setState(() { _currentWordId = word.id; });
-      if (_autoScroll) _scrollToWord(word.id);
-    }
+  Widget _voiceSectionHeader(String label) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            letterSpacing: 0.6,
+            fontWeight: FontWeight.w700,
+            color: _readingSubtextColor,
+          ),
+        ),
+      );
+
+  /// Friendly label for a device voice. The shortlist is numbered, so each
+  /// entry gets a distinct human name; entries beyond the shortlist (only
+  /// reachable from "show all") fall back to the engine's own identifier.
+  String _friendlyVoiceName(Map<String, String> v, List<Map<String, String>> curated) {
+    final idx = curated.indexWhere((c) => c['name'] == v['name']);
+    if (idx >= 0) return _voiceNames[idx % _voiceNames.length];
+    return v['name'] ?? 'Voice';
   }
 
-  SyncWordModel? _findWordAtPosition(double position) {
-    if (_syncData.isEmpty) return null;
-    int left = 0, right = _syncData.length - 1;
-    while (left <= right) {
-      final mid = (left + right) ~/ 2;
-      final word = _syncData[mid];
-      if (position >= word.start && position < word.end) return word;
-      if (position < word.start) right = mid - 1;
-      else left = mid + 1;
-    }
+  /// Best-effort gender hint from the engine identifier, when it carries one.
+  String? _voiceGenderHint(String identifier) {
+    final lower = identifier.toLowerCase();
+    if (lower.contains('female') || lower.contains('#f')) return 'Female';
+    if (lower.contains('male') || lower.contains('#m')) return 'Male';
     return null;
   }
 
-  void _scrollToWord(String wordId) {
-    final key = _wordKeys[wordId];
-    if (key?.currentContext != null) {
-      Scrollable.ensureVisible(
-        key!.currentContext!,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        alignment: 0.3,
-      );
+  Widget _voiceTile(
+    BuildContext sheetContext,
+    Map<String, String> v, {
+    int? nameIndex,
+    String? title,
+    String? subtitle,
+    IconData? leadingIcon,
+  }) {
+    final isDefault = (v['name'] ?? '').isEmpty;
+    final isCurrent = isDefault
+        ? _playback.voiceName == null
+        : _playback.voiceName == v['name'];
+
+    final label = title ??
+        (nameIndex != null
+            ? _voiceNames[nameIndex % _voiceNames.length]
+            : (v['name'] ?? 'Voice'));
+
+    // Name + language + gender, the way a voice picker usually reads.
+    final parts = <String>[
+      if (subtitle != null) subtitle,
+      if (!isDefault && (v['locale'] ?? '').isNotEmpty) v['locale']!,
+    ];
+    if (!isDefault) {
+      final hint = _voiceGenderHint(v['name'] ?? '');
+      if (hint != null) parts.add(hint);
     }
+
+    return ListTile(
+      leading: Icon(
+        isCurrent ? Icons.check_circle : (leadingIcon ?? Icons.record_voice_over_outlined),
+        color: isCurrent ? AppColors.primary : _readingSubtextColor,
+      ),
+      title: Text(label, style: TextStyle(color: _readingTextColor)),
+      subtitle: parts.isEmpty
+          ? null
+          : Text(parts.join(' · '),
+              style: TextStyle(color: _readingSubtextColor, fontSize: 12)),
+      onTap: () => Navigator.pop(sheetContext, v),
+    );
   }
 
-  // Kindle tap zones: left=prev, center=toggle menu, right=next
+  /// Feeds the audiobook clock into the playback controller, which maps the
+  /// timestamp through the sync table to a word and highlights its range —
+  /// the same highlight channel on-device narration drives.
+  void _onAudioTick(Duration position) {
+    if (_usesOnDeviceNarration) return;
+    _playback.onAudioPosition(position.inMilliseconds / 1000.0);
+  }
+
+  /// Brings the paragraph containing [offset] into view. Paragraph-level (not
+  /// word-level) because the reading view renders paragraphs lazily, so only
+  /// paragraph widgets have keys.
+  void _scrollToOffset(int offset) {
+    final content = _chapterContent;
+    if (content == null) return;
+    final paragraph = content.paragraphAtOffset(offset);
+    if (paragraph == null) return;
+    final index = content.paragraphs.indexOf(paragraph);
+    if (index < 0) return;
+
+    // Auto page-turn: If the spoken paragraph is on another page, animate smoothly
+    if (_pages.isNotEmpty) {
+      final targetPage = _pages.indexWhere((pageParaIndices) => pageParaIndices.contains(index));
+      if (targetPage >= 0 && targetPage != _pageIndex) {
+        if (_pageController.hasClients) {
+          _pageController.animateToPage(
+            targetPage,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeInOutCubic,
+          );
+        }
+      }
+    }
+
+    final key = _paraKeys['${content.chapterId}:$index'];
+    final ctx = key?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.3,
+    );
+  }
+
   void _handleTap(TapUpDetails details) {
     HapticFeedback.lightImpact();
-    
-    setState(() {
-      _tapPosition = details.localPosition;
-      _showTapFeedback = true;
-    });
-    Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) setState(() => _showTapFeedback = false);
-    });
 
     final screenWidth = MediaQuery.of(context).size.width;
     final tapX = details.localPosition.dx;
 
-    if (tapX < screenWidth * 0.3) {
-      _goToPreviousChapter();
-    } else if (tapX > screenWidth * 0.7) {
-      _goToNextChapter();
+    // Left margin turns back; right margin turns forward; middle toggles toolbars (Kindle standard)
+    if (tapX < screenWidth * 0.20) {
+      _turnPage(-1);
+    } else if (tapX > screenWidth * 0.80) {
+      _turnPage(1);
     } else {
-      setState(() { _showControls = !_showControls; });
+      _safeSetState(() {
+        _showToolbars = !_showToolbars;
+        _tapPosition = details.localPosition;
+        _showTapFeedback = true;
+      });
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) _safeSetState(() => _showTapFeedback = false);
+      });
     }
   }
 
-  void _goToPreviousChapter() {
-    if (_currentChapterIndex > 0) {
-      setState(() {
-        _currentChapterIndex--;
-      });
-      // Delay scroll reset until after AnimatedSwitcher transition
-      Future.delayed(AppAnimations.slow, () {
-        if (mounted) _scrollController.animateTo(0,
-          duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
-      });
+  /// Switches chapters, rebuilds the offset index for the new one, and clears
+  /// the reading position so the new chapter opens at its start.
+  void _openChapter(int index) {
+    if (index < 0 || index >= _chapters.length) return;
+    _playback.stop();
+    _safeSetState(() {
+      _currentChapterIndex = index;
+      // A new chapter is a new set of pages; start at its first one.
+      _pages = const [];
+      _pageIndex = 0;
+    });
+    _rebuildChapterContent();
+    _safeSetState(() => _scrollPercent = 0.0);
+
+    // Each chapter can carry its own narration clip, so swap the loaded audio
+    // when the new chapter has a different one.
+    if (_currentChapterAudio != _loadedAudioUrl) {
+      unawaited(_loadAudio());
     }
+
+    // Jump back to page one once the chapter swap has finished laying out.
+    Future.delayed(AppAnimations.slow, () {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+    });
+  }
+
+  void _goToPreviousChapter() {
+    if (_currentChapterIndex > 0) _openChapter(_currentChapterIndex - 1);
   }
 
   void _goToNextChapter() {
     if (_currentChapterIndex < _chapters.length - 1) {
-      setState(() {
-        _currentChapterIndex++;
-      });
-      Future.delayed(AppAnimations.slow, () {
-        if (mounted) _scrollController.animateTo(0,
-          duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
-      });
+      _openChapter(_currentChapterIndex + 1);
+    }
+  }
+
+  /// A book that is not in the reader's library cannot be read. The reader is
+  /// sent back to the Store to add it.
+  void _showNotInLibraryDialog() {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add this book to your library'),
+        content: Text(
+          '"${_book?.title ?? 'This book'}" isn\'t in your library yet. '
+          'Add it from the Store to read it.',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              Navigator.pop(context);
+            },
+            child: const Text('Back to Store'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // This used to treat a short clip on a long chapter as a demo tone and fall
+  // back to on-device narration. Narration is now a paid product the admin
+  // uploads, and those placeholder tones are gone from the catalogue — so the
+  // rule only served to hide real recordings (a 12-second sample on a long
+  // book read aloud with the device voice instead of playing, and never asked
+  // for the listen it costs). A book with audio plays it.
+  bool get _isPlaceholderAudio => false;
+
+  /// Asks the server for one listen before playing.
+  ///
+  /// Narration is sold one listen at a time, so playback is granted rather
+  /// than assumed. When none are left the reader is offered a purchase; the
+  /// server also says whether the offline copy should be withdrawn, which is
+  /// what happens once the last listen is spent.
+  Future<bool> _requestListen() async {
+    final language = (_book?.language.isNotEmpty ?? false) ? _book!.language : 'en';
+    try {
+      final result = await ref
+          .read(booksRepositoryProvider)
+          .startLecture(widget.bookId, language);
+
+      final url = result['audio_url'] as String?;
+      if (url != null && url.isNotEmpty) {
+        // Always (re)load the clip the server just authorised for this listen.
+        // A source loaded earlier (from a cached licence, say) can be stale and
+        // fail on play with a bare "source error".
+        await _setAudioUrl(url);
+        _loadedAudioUrl = url;
+      }
+
+      if (result['withdraw_download'] == true) {
+        // Last listen spent: the client asked for the downloaded copy to leave
+        // the account with it.
+        try {
+          await ref.read(downloadServiceProvider).deleteDownload(widget.bookId);
+        } catch (_) {
+          // Not fatal — the narration is already no longer playable.
+        }
+      }
+
+      final left = result['listens_left'];
+      if (left is int) _safeSetState(() => _listensLeft = left);
+      if (left is int && left >= 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(left > 0
+                ? '$left listen${left == 1 ? '' : 's'} left'
+                : 'Last listen — the recording has left your account'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      // No listens left is the expected answer, not an error: offer the
+      // purchase instead of showing a failure.
+      final message = e.toString();
+      if (message.contains('402') || message.toLowerCase().contains('no listens')) {
+        return await _offerListenPurchase(language);
+      }
+      if (message.contains('404') || message.toLowerCase().contains('no narration') || message.toLowerCase().contains('not found')) {
+        _safeSetState(() => _noAudio = true);
+        return false;
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> _offerListenPurchase(String language) async {
+    if (!mounted) return false;
+
+    double? price;
+    try {
+      final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+      price = (info['price_per_listen'] as num?)?.toDouble();
+    } catch (_) {
+      // Fall through with no price; the sheet still explains the model.
+    }
+
+    if (!mounted) return false;
+    final phoneController = TextEditingController();
+    String method = 'orange_money';
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _readingBg,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final needsPhone = method != 'card';
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              24, 20, 24, 28 + MediaQuery.of(sheetContext).viewInsets.bottom),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Listen to this book',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: _readingTextColor)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Listening is sold one play at a time. Each purchase lets '
+                    'you hear the recording once, and when your listens run out '
+                    'the downloaded copy leaves your library.',
+                    style: TextStyle(
+                        fontSize: 13, color: _readingSubtextColor, height: 1.5),
+                  ),
+                  const SizedBox(height: 18),
+
+                  Text('Pay with',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _readingSubtextColor)),
+                  const SizedBox(height: 8),
+                  for (final entry in [
+                    ('orange_money', 'Orange Money', Icons.phone_android),
+                    ('mtn_momo', 'MTN Mobile Money', Icons.phone_android),
+                    ('card', 'Credit / Debit Card', Icons.credit_card),
+                  ])
+                    RadioListTile<String>(
+                      value: entry.$1,
+                      groupValue: method,
+                      onChanged: (v) => setSheetState(() => method = v!),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Row(
+                        children: [
+                          Icon(entry.$3, size: 18, color: _readingSubtextColor),
+                          const SizedBox(width: 8),
+                          Text(entry.$2,
+                              style: TextStyle(
+                                  fontSize: 13, color: _readingTextColor)),
+                        ],
+                      ),
+                    ),
+
+                  if (needsPhone) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      style: TextStyle(color: _readingTextColor, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Mobile money number',
+                        prefixIcon: const Icon(Icons.phone, size: 18),
+                        isDense: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (needsPhone && phoneController.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                                content: Text('Enter your mobile money number')),
+                          );
+                          return;
+                        }
+                        Navigator.pop(sheetContext, true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
+                      child: Text(price == null
+                          ? 'Buy a listen'
+                          : 'Buy a listen — ${price.toStringAsFixed(0)} XAF'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(sheetContext, false),
+                      child: const Text('Not now'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    final phone = phoneController.text.trim();
+    phoneController.dispose();
+
+    if (confirmed != true) return false;
+    return _buyListen(method, phone.isEmpty ? null : phone);
+  }
+
+  Future<bool> _buyListen(String method, String? phone) async {
+    try {
+      final repo = ref.read(paymentsRepositoryProvider);
+      final payment = await repo.checkout(
+        method: method,
+        itemType: 'lecture',
+        bookId: widget.bookId,
+        phone: phone,
+      );
+      if (payment.isPending) {
+        final done = await repo.confirmPayment(payment.id);
+        if (!done.isCompleted) return false;
+      }
+      if (!mounted) return false;
+      try {
+        final info = await ref.read(booksRepositoryProvider).lectureInfo(widget.bookId);
+        final recordings = (info['recordings'] as List?) ?? const [];
+        _safeSetState(() {
+          _listenPrice = (info['price_per_listen'] as num?)?.toDouble() ?? _listenPrice;
+          _listensLeft = recordings.fold<int>(
+              0, (sum, r) => sum + ((r['listens_left'] as num?)?.toInt() ?? 0));
+        });
+      } catch (_) {
+        // The credit exists; the banner can catch up on the next open.
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Listen added — press play')),
+      );
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not buy a listen: $e')),
+        );
+      }
+      return false;
     }
   }
 
   Future<void> _togglePlayPause() async {
-    // Stop TTS if it's playing
-    if (_isTtsPlaying) {
-      await _stopTts();
+    try {
+      if (_isTtsPlaying) {
+        await _playback.pause();
+        return;
+      }
+      if (_isPlaying) {
+        await _audioPlayer.pause();
+        return;
+      }
+
+      if (_audioError != null) {
+        await _loadAudio().timeout(const Duration(seconds: 8)); // retry loading before playing
+      }
+      // No usable narration audio for this book — the phone reads it instead.
+      if (_usesOnDeviceNarration) {
+        await _playback.toggle();
+        return;
+      }
+      // Narration is paid for per play, so ask before it sounds.
+      final granted = await _requestListen();
+      if (!granted) {
+        if (_noAudio) {
+          await _playback.toggle();
+        }
+        return;
+      }
+      await _audioPlayer.play();
+    } catch (e) {
+      if (!mounted) return;
+      _loadedAudioUrl = null;
+      ref.read(drmServiceProvider).revokeLicense(widget.bookId);
+      // Fallback to on-device TTS if audio player fails to stream
+      _safeSetState(() {
+        _noAudio = true;
+        _audioError = null;
+      });
+      await _playback.toggle();
     }
-    if (_isPlaying) await _audioPlayer.pause();
-    else await _audioPlayer.play();
   }
 
-  Future<void> _seekToWord(String wordId) async {
+  /// Moves the reading position to a word and starts playback from there.
+  ///
+  /// Audiobook mode seeks the audio to that word's timestamp; on-device mode
+  /// asks the controller to narrate from that word. Both resolve to the same
+  /// offset first, so the highlight lands in the same place either way.
+  Future<void> _playFromWord(String wordId) async {
+    final word = _chapterContent?.wordById(wordId);
+    if (word == null) return;
+
+    if (_usesOnDeviceNarration) {
+      await _playback.startReadingFromWord(
+        globalOffset: word.start,
+        highlightStart: word.start,
+        highlightEnd: word.end,
+      );
+      return;
+    }
+
     try {
       final syncWord = _syncData.firstWhere((s) => s.id == wordId);
-      await _audioPlayer.seek(Duration(milliseconds: (syncWord.start * 1000).round()));
-    } catch (_) {}
+      await _audioPlayer.seek(
+        Duration(milliseconds: (syncWord.start * 1000).round()),
+      );
+      await _audioPlayer.play();
+    } catch (_) {
+      // No timestamp for this word — still move the reading highlight there.
+      _playback.seekToOffset(word.start);
+    }
+  }
+
+  /// Kindle-style tap-to-define: long-pressing a word shows a compact action
+  /// sheet with a dictionary lookup plus highlight/note/read-from-here.
+  void _showWordActionSheet(WordModel word) {
+    _safeSetState(() => _selectedWordId = word.id);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _readingBg,
+      builder: (_) => WordActionSheet(
+        word: word,
+        language: _book?.language ?? 'en',
+        hasBookmark: _bookmarks.any((b) => b.wordId == word.id),
+        hasNote: _notes.any((n) => n.wordId == word.id),
+        onHighlight: () { Navigator.pop(context); _addBookmark(); },
+        onNote: () { Navigator.pop(context); _addNote(); },
+        onPlayFromHere: () { Navigator.pop(context); _playFromWord(word.id); },
+        defineWord: _defineWord,
+      ),
+    );
+  }
+
+  Future<DictionaryEntry> _defineWord(String word, String language) async {
+    final apiClient = ref.read(apiClientProvider);
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.dictionary(word),
+      queryParams: {'lang': language},
+    );
+    if (response.success && response.data != null) {
+      return DictionaryEntry.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'No definition found');
   }
 
   Future<void> _saveProgress() async {
-    if (_progress == null) return;
-    final userDataRepo = ref.read(userDataRepositoryProvider);
+    await _doSaveProgress(
+      userDataRepo: ref.read(userDataRepositoryProvider),
+      syncService: ref.read(syncServiceProvider),
+    );
+  }
+
+  /// Same save, but for dispose(): ref is invalid there, so it must run on
+  /// the repo/service instances captured back in initState() instead of
+  /// reading providers.
+  void _saveProgressOnDispose() {
+    _doSaveProgress(
+      userDataRepo: _userDataRepoForDispose,
+      syncService: _syncServiceForDispose,
+    );
+  }
+
+  Future<void> _doSaveProgress({
+    required UserDataRepository userDataRepo,
+    required SyncService syncService,
+  }) async {
+    if (_progress == null || _chapters.isEmpty) return;
     final updatedProgress = _progress!.copyWith(
       positionSeconds: _currentPosition.inMilliseconds / 1000.0,
       progressPercent: _calculateProgressPercent(),
@@ -535,7 +1543,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         progressPercent: updatedProgress.progressPercent,
       );
     } catch (e) {
-      final syncService = ref.read(syncServiceProvider);
       await syncService.updateProgress(updatedProgress);
     }
   }
@@ -558,15 +1565,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _addBookmark() async {
-    if (_currentWordId == null) return;
+    if (_selectedWordId == null) return;
+    // Nullable lookup, not firstWhere: `orElse: () => null as BookmarkModel`
+    // threw whenever the word had no bookmark yet — which is the common case
+    // when adding one — so the dialog never opened.
+    BookmarkModel? existing;
+    for (final b in _bookmarks) {
+      if (b.wordId == _selectedWordId) {
+        existing = b;
+        break;
+      }
+    }
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => BookmarkDialog(
-        wordId: _currentWordId!,
-        existingBookmark: _bookmarks.firstWhere(
-          (b) => b.wordId == _currentWordId,
-          orElse: () => null as BookmarkModel,
-        ),
+        wordId: _selectedWordId!,
+        existingBookmark: existing,
       ),
     );
     if (result != null) {
@@ -574,16 +1588,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result['delete'] == true) {
-          setState(() { _bookmarks.removeWhere((b) => b.wordId == _currentWordId); });
+          _safeSetState(() { _bookmarks.removeWhere((b) => b.wordId == _selectedWordId); });
         } else {
           final bookmark = await syncService.createBookmark(
-            userId: user!.id, bookId: widget.bookId, wordId: _currentWordId!,
+            userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
             chapterId: _chapters[_currentChapterIndex].id,
             positionSeconds: _currentPosition.inMilliseconds / 1000.0,
             note: result['note'], color: result['color'],
           );
-          setState(() {
-            _bookmarks.removeWhere((b) => b.wordId == _currentWordId);
+          _safeSetState(() {
+            _bookmarks.removeWhere((b) => b.wordId == _selectedWordId);
             _bookmarks.add(bookmark);
           });
         }
@@ -596,15 +1610,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _addNote() async {
-    if (_currentWordId == null) return;
+    if (_selectedWordId == null) return;
+    // Same nullable lookup as the bookmark dialog: the old orElse cast threw
+    // for any word without an existing note, so the dialog never opened.
+    NoteModel? existingNote;
+    for (final n in _notes) {
+      if (n.wordId == _selectedWordId) {
+        existingNote = n;
+        break;
+      }
+    }
     final result = await showDialog<String>(
       context: context,
       builder: (_) => NoteDialog(
-        wordId: _currentWordId!,
-        existingNote: _notes.firstWhere(
-          (n) => n.wordId == _currentWordId,
-          orElse: () => null as NoteModel,
-        ),
+        wordId: _selectedWordId!,
+        existingNote: existingNote,
       ),
     );
     if (result != null) {
@@ -612,14 +1632,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final user = ref.read(currentUserProvider);
       try {
         if (result.isEmpty) {
-          setState(() { _notes.removeWhere((n) => n.wordId == _currentWordId); });
+          _safeSetState(() { _notes.removeWhere((n) => n.wordId == _selectedWordId); });
         } else {
           final note = await syncService.createNote(
-            userId: user!.id, bookId: widget.bookId, wordId: _currentWordId!,
+            userId: user!.id, bookId: widget.bookId, wordId: _selectedWordId!,
             content: result, chapterId: _chapters[_currentChapterIndex].id,
           );
-          setState(() {
-            _notes.removeWhere((n) => n.wordId == _currentWordId);
+          _safeSetState(() {
+            _notes.removeWhere((n) => n.wordId == _selectedWordId);
             _notes.add(note);
           });
         }
@@ -643,13 +1663,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               : _readingMode == ReadingMode.sepia ? 'sepia' 
               : 'light',
         playbackSpeed: _playbackSpeed,
+        voicePitch: _voicePitch,
+        volume: _volume,
         autoScroll: _autoScroll,
         highlightColor: _highlightColor,
         readingMode: _readingMode,
-        onFontSizeChanged: (v) => setState(() => _fontSize = v),
-        onLineHeightChanged: (v) => setState(() => _lineHeight = v),
+        voiceLabel: _playback.voiceName,
+        onChooseVoice: _chooseVoice,
+        onFontSizeChanged: (v) => _safeSetState(() => _fontSize = v),
+        onLineHeightChanged: (v) => _safeSetState(() => _lineHeight = v),
         onThemeChanged: (v) {
-          setState(() {
+          _safeSetState(() {
             switch (v) {
               case 'light': _readingMode = ReadingMode.light; break;
               case 'sepia': _readingMode = ReadingMode.sepia; break;
@@ -659,18 +1683,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           });
         },
         onPlaybackSpeedChanged: (v) {
-          setState(() => _playbackSpeed = v);
+          _safeSetState(() => _playbackSpeed = v);
           _audioPlayer.setSpeed(v);
+          _playback.setSpeechRate(_speechRateFor(v));
         },
-        onAutoScrollChanged: (v) => setState(() => _autoScroll = v),
-        onHighlightColorChanged: (v) => setState(() => _highlightColor = v),
-        onReadingModeChanged: (mode) => setState(() => _readingMode = mode),
+        onVoicePitchChanged: (v) {
+          _safeSetState(() => _voicePitch = v);
+          _audioPlayer.setPitch(v);
+          _playback.setPitch(v);
+        },
+        onVolumeChanged: (v) {
+          _safeSetState(() => _volume = v);
+          // One slider controls both audio sources, so the reader never has
+          // to know which one is currently playing.
+          _audioPlayer.setVolume(v);
+          _playback.setVolume(v);
+        },
+        onAutoScrollChanged: (v) => _safeSetState(() => _autoScroll = v),
+        onHighlightColorChanged: (v) => _safeSetState(() => _highlightColor = v),
+        onReadingModeChanged: (mode) => _safeSetState(() => _readingMode = mode),
       ),
     );
   }
 
   void _toggleFullscreen() {
-    setState(() { _isFullscreen = !_isFullscreen; });
+    _safeSetState(() { _isFullscreen = !_isFullscreen; });
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
@@ -706,39 +1743,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.transparent,
       endDrawer: ChapterListDrawer(
         chapters: _chapters,
         currentChapterIndex: _currentChapterIndex,
         bookmarks: _bookmarks,
-        onChapterSelected: (index) {
-          setState(() { _currentChapterIndex = index; });
-          Future.delayed(AppAnimations.slow, () {
-            if (mounted) _scrollController.animateTo(0,
-                duration: const Duration(milliseconds: 200), curve: Curves.easeInOut);
-          });
-        },
+        onChapterSelected: _openChapter,
       ),
       body: AnimatedContainer(
         duration: AppAnimations.slow,
         color: _readingBg,
         child: Column(
           children: [
-            // Top bar with slide + fade animation
-            AnimatedSlide(
-              offset: _showControls ? Offset.zero : const Offset(0, -1),
-              duration: AppAnimations.fast,
-              curve: Curves.easeInOutCubic,
-              child: AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: AppAnimations.fast,
-                child: _buildTopBar(),
-              ),
-            ),
-            
+            // Top bar — toggled via center tap or immersive mode
+            if (_showToolbars) ...[
+              _buildTopBar(),
+              _buildAccessNotice(),
+            ],
+
             // Reading content with Kindle tap zones
             Expanded(
               child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
                 onTapUp: _handleTap,
                 child: Stack(
                   children: [
@@ -778,22 +1805,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
             
-            // Bottom bar with slide + fade animation
-            AnimatedSlide(
-              offset: _showControls ? Offset.zero : const Offset(0, 1),
-              duration: AppAnimations.fast,
-              curve: Curves.easeInOutCubic,
-              child: AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: AppAnimations.fast,
-                child: _buildBottomBar(),
-              ),
-            ),
+            // Playback bar — toggled with toolbars
+            if (_showToolbars) _buildBottomBar(),
             
             // Progress bar (always visible)
             _buildMiniProgressBar(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// States the reading terms before the reader presses anything.
+  ///
+  /// The book is read-only: the text is open to read, hearing the recording is
+  /// sold one play at a time. The strip is always present so the terms are
+  /// never hidden behind a play press.
+  Widget _buildAccessNotice() {
+    if (_dismissAccessNotice) return const SizedBox.shrink();
+    final left = _listensLeft;
+    final price = _listenPrice;
+
+    if (left == null && price == null) return const SizedBox.shrink();
+
+    final String text;
+    if (left != null && left > 0) {
+      text = '$left listen${left == 1 ? '' : 's'} left for this studio recording';
+    } else {
+      text = price == null
+          ? 'Studio recording available · buy a listen to play'
+          : 'Studio listen costs ${price.toStringAsFixed(0)} XAF · AI Voice is free';
+    }
+
+    const colour = AppColors.primary;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+      color: colour.withValues(alpha: 0.10),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.headphones_outlined,
+            size: 15,
+            color: colour,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: colour,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 14, color: colour),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            tooltip: 'Dismiss notice',
+            onPressed: () => _safeSetState(() => _dismissAccessNotice = true),
+          ),
+        ],
       ),
     );
   }
@@ -815,65 +1890,61 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               // Back
               IconButton(
                 icon: const Icon(Icons.arrow_back),
+                color: _readingTextColor,
                 onPressed: () => Navigator.pop(context),
               ),
-              // Book title and chapter
+              // Book title. The chapter is not repeated here: it already
+              // opens the page in the text itself, and showing it twice in
+              // the same view is what made the reader look cluttered.
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _book?.title ?? '',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _readingTextColor,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (_chapters.isNotEmpty)
-                      Text(
-                        _chapters[_currentChapterIndex].title,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _readingSubtextColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                  ],
+                child: Text(
+                  _book?.title ?? '',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _readingTextColor,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               // Table of Contents
               IconButton(
                 icon: const Icon(Icons.list),
+                color: _readingTextColor,
                 tooltip: 'Table of Contents',
-                onPressed: () => Scaffold.of(context).openEndDrawer(),
+                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
               ),
               // Aa settings
               IconButton(
                 icon: const Icon(Icons.text_fields),
+                color: _readingTextColor,
                 tooltip: 'Font & Theme settings',
                 onPressed: _showAaSettings,
               ),
-              // Bookmarks
-              IconButton(
-                icon: const Icon(Icons.bookmark_border),
-                tooltip: 'Bookmarks',
-                onPressed: _addBookmark,
-              ),
-              // Notes
-              IconButton(
-                icon: const Icon(Icons.note_add_outlined),
-                tooltip: 'Add note',
-                onPressed: _addNote,
-              ),
-              // Fullscreen
-              IconButton(
-                icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
-                onPressed: _toggleFullscreen,
+              // Everything else lives behind one menu. Five buttons across the
+              // top of a reading page is a toolbar, not a book.
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: _readingTextColor),
+                tooltip: 'More',
+                onSelected: (value) {
+                  switch (value) {
+                    case 'bookmark':
+                      _addBookmark();
+                    case 'note':
+                      _addNote();
+                    case 'fullscreen':
+                      _toggleFullscreen();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'bookmark', child: Text('Add bookmark')),
+                  const PopupMenuItem(value: 'note', child: Text('Add note')),
+                  PopupMenuItem(
+                    value: 'fullscreen',
+                    child: Text(_isFullscreen ? 'Exit full screen' : 'Full screen'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -935,9 +2006,36 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 ],
               ),
             ),
+            if (_audioError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, size: 14, color: AppColors.error),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(_audioError!,
+                        style: const TextStyle(fontSize: 11, color: AppColors.error),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    TextButton(
+                      onPressed: _loadAudio,
+                      child: const Text('Retry', style: TextStyle(fontSize: 11)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 14),
+                      color: _readingSubtextColor,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      tooltip: 'Dismiss',
+                      onPressed: () => _safeSetState(() => _audioError = null),
+                    ),
+                  ],
+                ),
+              ),
             // Audio controls
             AudioControls(
-              isPlaying: _isPlaying,
+              isPlaying: _isPlaying || _isTtsPlaying,
               currentPosition: _currentPosition,
               totalDuration: _totalDuration,
               playbackSpeed: _playbackSpeed,
@@ -946,13 +2044,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               onPlayPause: _togglePlayPause,
               onSeek: (position) => _audioPlayer.seek(position),
               onSpeedChange: (speed) {
-                setState(() => _playbackSpeed = speed);
+                _safeSetState(() => _playbackSpeed = speed);
                 _audioPlayer.setSpeed(speed);
-                if (_isTtsPlaying) _tts.setSpeechRate(speed);
+                _playback.setSpeechRate(_speechRateFor(speed));
               },
               onTtsToggle: _toggleTts,
               textColor: _readingTextColor,
               bgColor: _readingBg,
+              bookTitle: _book?.title,
+              chapterTitle: _chapters.isNotEmpty && _currentChapterIndex < _chapters.length
+                  ? _chapters[_currentChapterIndex].title
+                  : null,
+              authorName: _book?.author,
+              coverUrl: _book?.coverUrl,
+              sleepTimerRemaining: _sleepTimerRemaining,
+              onSetSleepTimer: (m, {endOfChapter = false}) =>
+                  _startSleepTimer(m, endOfChapter: endOfChapter),
+              onCancelSleepTimer: _cancelSleepTimer,
+              onOpenVoicePicker: _chooseVoice,
+              voicePitch: _voicePitch,
+              volume: _volume,
+              onPitchChange: (v) {
+                _safeSetState(() => _voicePitch = v);
+                _playback.setPitch(v);
+              },
+              onVolumeChange: (v) {
+                _safeSetState(() => _volume = v);
+                _playback.setVolume(v);
+              },
+              onPreviousChapter: _goToPreviousChapter,
+              onNextChapter: _goToNextChapter,
+              hasPreviousChapter: _currentChapterIndex > 0,
+              hasNextChapter: _currentChapterIndex < _chapters.length - 1,
             ),
           ],
         ),
@@ -1033,132 +2156,105 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     final chapter = _chapters[_currentChapterIndex];
+    final content = _chapterContent;
+    if (content == null || content.paragraphs.isEmpty) {
+      return Center(
+        child: Text('No content available', style: TextStyle(color: _readingSubtextColor)),
+      );
+    }
+
+    // Desktop windows are much wider than a phone; keep the reading column
+    // at a comfortable line length (like a real book page) and let the
+    // extra width become breathing room on either side instead of
+    // stretching text edge-to-edge.
+    final columnWidth = _isDesktop ? 720.0 : double.infinity;
+
+    Widget centered(Widget child) => Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: columnWidth),
+            child: child,
+          ),
+        );
+
+    // One page at a time, laid out to fit the space available. Pagination is
+    // recomputed only when something that changes the layout changes — the
+    // type size, the line height, the page box, or the chapter itself —
+    // because measuring every paragraph is not free.
+    final pageArea = LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.min(constraints.maxWidth - _margin * 2, columnWidth);
+        final height = constraints.maxHeight;
+        if (_pages.isEmpty ||
+            _lastPageWidth != width ||
+            _lastPageHeight != height ||
+            _lastPageFontSize != _fontSize ||
+            _lastPageLineHeight != _lineHeight) {
+          _pages = _paginate(content, width, height);
+          _lastPageWidth = width;
+          _lastPageHeight = height;
+          _lastPageFontSize = _fontSize;
+          _lastPageLineHeight = _lineHeight;
+          if (_pageIndex >= _pages.length) _pageIndex = _pages.length - 1;
+        }
+
+        return PageView.builder(
+          controller: _pageController,
+          itemCount: _pages.length,
+          onPageChanged: (i) => _safeSetState(() {
+            _pageIndex = i;
+            _onPageChanged(i);
+          }),
+          itemBuilder: (context, pageIndex) {
+            final indices = _pages[pageIndex];
+            return SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
+              child: centered(
+                Padding(
+                  padding: EdgeInsets.fromLTRB(_margin, 16, _margin, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (pageIndex == 0) _buildChapterTitle(chapter.title),
+                      for (final i in indices)
+                        Padding(
+                          key: _paraKeys.putIfAbsent(
+                            '${content.chapterId}:$i',
+                            () => GlobalKey(),
+                          ),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _ReaderParagraph(
+                            key: ValueKey('${content.chapterId}:$i'),
+                            paragraph: content.paragraphs[i],
+                            source: chapter.paragraphs[i],
+                            playback: _playback,
+                            fontSize: _fontSize,
+                            lineHeight: _lineHeight,
+                            textColor: _readingTextColor,
+                            highlightColor: _highlightColor,
+                            onWordTap: _startReadingFromWord,
+                            onWordLongPress: _showWordActionSheet,
+                          ),
+                        ),
+                      if (pageIndex == _pages.length - 1) ...[
+                        const SizedBox(height: 24),
+                        _buildChapterFooter(),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    final scrollView = pageArea;
 
     return Stack(
       children: [
         // Main text
-        SingleChildScrollView(
-          controller: _scrollController,
-          padding: EdgeInsets.symmetric(horizontal: _margin, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Chapter title with accent bar (Kindle-style)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AnimatedContainer(
-                    duration: AppAnimations.slow,
-                    width: 3,
-                    height: _fontSize * 1.8,
-                    decoration: BoxDecoration(
-                      color: _highlightColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: AnimatedDefaultTextStyle(
-                      duration: AppAnimations.slow,
-                      style: TextStyle(
-                        fontSize: _fontSize * 1.3,
-                        fontWeight: FontWeight.w700,
-                        color: _readingTextColor,
-                        letterSpacing: -0.3,
-                        height: 1.3,
-                      ),
-                      child: Text(chapter.title),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: _fontSize * 1.5),
-              
-              // Paragraphs
-              ...chapter.paragraphs.map((paragraph) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _buildParagraph(paragraph),
-                );
-              }),
-
-              // End of chapter decorative marker
-              SizedBox(height: _fontSize * 2),
-              Center(
-                child: Text(
-                  '◆\u00A0\u00A0\u00A0◆\u00A0\u00A0\u00A0◆',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _readingSubtextColor.withOpacity(0.35),
-                    fontSize: _fontSize * 0.65,
-                    letterSpacing: 8,
-                  ),
-                ),
-              ),
-              SizedBox(height: _fontSize),
-
-              // Kindle-style page info
-              if (_showPageNumber)
-                Center(
-                  child: Text(
-                    _currentPageInfo,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _readingSubtextColor,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-              
-              // Time remaining
-              if (_showTimeRemaining)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      _estimatedTimeRemaining,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _readingSubtextColor,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ),
-                ),
-              
-              SizedBox(height: _fontSize * 3),
-            ],
-          ),
-        ),
-
-        // Kindle tap zone indicators (briefly shown on tap)
-        if (_showControls)
-          Row(
-            children: [
-              // Left zone indicator
-              Expanded(
-                child: Container(
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.only(left: 16),
-                  child: _currentChapterIndex > 0
-                      ? Icon(Icons.chevron_left, color: _readingSubtextColor.withOpacity(0.3), size: 40)
-                      : null,
-                ),
-              ),
-              // Center zone
-              Expanded(child: Container()),
-              // Right zone indicator
-              Expanded(
-                child: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 16),
-                  child: _currentChapterIndex < _chapters.length - 1
-                      ? Icon(Icons.chevron_right, color: _readingSubtextColor.withOpacity(0.3), size: 40)
-                      : null,
-                ),
-              ),
-            ],
-          ),
+        scrollView,
 
         // Bookmark indicators on the right edge (Kindle-style)
         if (_bookmarks.isNotEmpty)
@@ -1172,6 +2268,149 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               child: _buildBookmarkRibbons(),
             ),
           ),
+      ],
+    );
+  }
+
+  /// Body type of the book, matching what `_ReaderParagraph` draws with so
+  /// page measurement and rendering agree.
+  TextStyle get _readingStyle => GoogleFonts.lora(
+        fontSize: _fontSize,
+        height: _lineHeight,
+        color: _readingTextColor,
+        letterSpacing: 0.1,
+      );
+
+  /// Measures how tall one paragraph renders at the given width.
+  ///
+  /// Page breaks are decided from the real glyph layout, using the same style
+  /// and width the paragraph will be drawn with. Anything cheaper (counting
+  /// characters, assuming a fixed line height) drifts and leaves a paragraph
+  /// half off the foot of the page.
+  double _paragraphHeight(String text, double width) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: _readingStyle),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width);
+    return painter.height;
+  }
+
+  /// Splits the open chapter into pages that fit [height] at [width].
+  ///
+  /// Paragraphs are never broken across pages — an orphaned half-paragraph is
+  /// what makes a reader feel like a text box rather than a book.
+  List<List<int>> _paginate(
+    ReaderChapterContent content,
+    double width,
+    double height,
+  ) {
+    const paragraphGap = 12.0;
+    const verticalPadding = 24.0;
+    final titleOverhead = _fontSize * 3.9 + 25.0; // Chapter title + spacing + divider
+    final pages = <List<int>>[];
+    var current = <int>[];
+    
+    // Page 0 has the chapter title at the top
+    var pageMaxHeight = height - verticalPadding - titleOverhead;
+    var used = 0.0;
+
+    for (var i = 0; i < content.paragraphs.length; i++) {
+      final h =
+          _paragraphHeight(content.paragraphs[i].text, width) + paragraphGap;
+      if (current.isNotEmpty && used + h > pageMaxHeight) {
+        pages.add(current);
+        current = <int>[];
+        used = 0.0;
+        pageMaxHeight = height - verticalPadding;
+      }
+      current.add(i);
+      used += h;
+    }
+    if (current.isNotEmpty) pages.add(current);
+    if (pages.isEmpty) pages.add(const []);
+    return pages;
+  }
+
+  /// The chapter opening.
+  ///
+  /// A book does not shout its chapter title in bold with a coloured bar
+  /// beside it; it sets it quietly in the middle of the page with room around
+  /// it. Matching that is most of what makes the reader feel like a book
+  /// rather than an app with text in it.
+  Widget _buildChapterTitle(String title) {
+    return Padding(
+      padding: EdgeInsets.only(top: _fontSize * 1.6, bottom: _fontSize * 1.4),
+      child: Column(
+        children: [
+          Text(
+            title.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: GoogleFonts.lora(
+              fontSize: _fontSize * 0.82,
+              fontWeight: FontWeight.w400,
+              color: _readingSubtextColor,
+              letterSpacing: 2.4,
+              height: 1.5,
+            ),
+          ),
+          SizedBox(height: _fontSize * 0.9),
+          // A short centred rule, the way a printed chapter opening is divided.
+          SizedBox(
+            width: 56,
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: _readingSubtextColor.withValues(alpha: 0.45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// End-of-chapter ornament plus the page / time-remaining readouts.
+  Widget _buildChapterFooter() {
+    return Column(
+      children: [
+        SizedBox(height: _fontSize * 2),
+        Center(
+          child: Text(
+            '◆\u00A0\u00A0\u00A0◆\u00A0\u00A0\u00A0◆',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _readingSubtextColor.withOpacity(0.35),
+              fontSize: _fontSize * 0.65,
+              letterSpacing: 8,
+            ),
+          ),
+        ),
+        SizedBox(height: _fontSize),
+        if (_showPageNumber)
+          Center(
+            child: Text(
+              _currentPageInfo,
+              style: TextStyle(
+                fontSize: 12,
+                color: _readingSubtextColor,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        if (_showTimeRemaining)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _estimatedTimeRemaining,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _readingSubtextColor,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ),
+        SizedBox(height: _fontSize * 3),
       ],
     );
   }
@@ -1214,54 +2453,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  Widget _buildParagraph(ParagraphModel paragraph) {
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(
-          fontSize: _fontSize,
-          height: _lineHeight,
-          color: _readingTextColor,
-          letterSpacing: 0.2,
-        ),
-        children: paragraph.words.map((word) {
-          final isCurrentWord = word.id == _currentWordId;
-          final hasBookmark = _bookmarks.any((b) => b.wordId == word.id);
-          final hasNote = _notes.any((n) => n.wordId == word.id);
-
-          _wordKeys.putIfAbsent(word.id, () => GlobalKey());
-
-          final isLast = paragraph.words.last.id == word.id;
-          final wordText = isLast ? word.text : '${word.text} ';
-          final textStyle = TextStyle(
-            fontSize: _fontSize,
-            height: _lineHeight,
-            color: _readingTextColor,
-            letterSpacing: 0.2,
-          );
-
-          // Use WidgetSpan for decorated words (highlight/bookmark/note)
-          if (isCurrentWord || hasBookmark || hasNote) {
-            return WordWidget(
-              word: word,
-              isHighlighted: isCurrentWord,
-              hasBookmark: hasBookmark,
-              hasNote: hasNote,
-              highlightColor: isCurrentWord ? _highlightColor : null,
-              onTap: () => _seekToWord(word.id),
-              textStyle: textStyle,
-              text: wordText,
-            );
-          }
-
-          // Use lightweight TextSpan for neutral words
-          return WordSpan(
-            text: wordText,
-            wordData: word,
-            style: textStyle,
-          );
-        }).toList(),
-      ),
-    );
+  /// Tap-to-read-from-here. The paragraph maps the tap to a character offset
+  /// and hands back the word under it plus that word's chapter-wide range.
+  void _startReadingFromWord(WordModel word, int start, int end) {
+    _safeSetState(() => _selectedWordId = word.id);
+    // If playback is currently active, seek narration to this word
+    if (_isPlaying || _isTtsPlaying) {
+      if (_usesOnDeviceNarration) {
+        _playback.startReadingFromWord(
+          globalOffset: start,
+          highlightStart: start,
+          highlightEnd: end,
+        );
+      } else {
+        _playFromWord(word.id);
+      }
+    } else {
+      // If reading silently, a single tap toggles toolbars (Kindle standard)
+      _safeSetState(() => _showToolbars = !_showToolbars);
+    }
   }
 }
 
@@ -1282,4 +2492,194 @@ class _TapRipplePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_TapRipplePainter old) => old.position != position;
+}
+
+/// One lazily-built paragraph.
+///
+/// It renders as a single `Text` (3 spans when part of it is highlighted) and
+/// resolves taps through the live `RenderParagraph`, rather than building a
+/// `WidgetSpan` per word. That keeps a long paragraph cheap to build and lets
+/// a tap map to the exact word the user touched.
+///
+/// The highlight it draws is derived from the playback controller's
+/// chapter-wide range, clipped to this paragraph's own slice — so a word
+/// spoken three paragraphs away produces the same value before and after the
+/// change, and this widget does not rebuild.
+class _ReaderParagraph extends StatefulWidget {
+  const _ReaderParagraph({
+    super.key,
+    required this.paragraph,
+    required this.source,
+    required this.playback,
+    required this.fontSize,
+    required this.lineHeight,
+    required this.textColor,
+    required this.highlightColor,
+    required this.onWordTap,
+    required this.onWordLongPress,
+  });
+
+  final BookParagraph paragraph;
+  final ParagraphModel source;
+  final ReaderPlaybackController playback;
+  final double fontSize;
+  final double lineHeight;
+  final Color textColor;
+  final Color highlightColor;
+  final void Function(WordModel word, int start, int end) onWordTap;
+  final void Function(WordModel word) onWordLongPress;
+
+  @override
+  State<_ReaderParagraph> createState() => _ReaderParagraphState();
+}
+
+class _ReaderParagraphState extends State<_ReaderParagraph> {
+  /// Resolves a tap against the exact layout on screen — same font, same
+  /// width, same line breaks — which a separately built `TextPainter` can
+  /// disagree with.
+  final _textKey = GlobalKey();
+
+  /// Body text of the book itself.
+  ///
+  /// A serif typeface, deliberately different from the app's Poppins/Inter
+  /// chrome: long passages read more easily in serif, which is why readers and
+  /// reading apps use one even when their surrounding UI is sans-serif.
+  TextStyle get _style => GoogleFonts.lora(
+        fontSize: widget.fontSize,
+        height: widget.lineHeight,
+        color: widget.textColor,
+        letterSpacing: 0.1,
+      );
+
+  /// The word under a tap, as its `WordModel` plus its chapter-wide
+  /// `[start, end)` range. Null when the tap missed the text or landed on
+  /// whitespace between words.
+  ({WordModel word, int start, int end})? _wordAt(Offset localPosition) {
+    final renderParagraph =
+        _textKey.currentContext?.findRenderObject() as RenderParagraph?;
+    if (renderParagraph == null) return null;
+
+    final text = widget.paragraph.text;
+    final position = renderParagraph.getPositionForOffset(localPosition);
+    final index = position.offset;
+    if (index < 0 || index >= text.length) return null;
+
+    // Expand the character to the full whitespace-delimited word.
+    var start = index;
+    while (start > 0 && !_isWhitespace(text.codeUnitAt(start - 1))) {
+      start--;
+    }
+    var end = index;
+    while (end < text.length && !_isWhitespace(text.codeUnitAt(end))) {
+      end++;
+    }
+    if (end <= start) return null;
+
+    // The paragraph text is exactly its words joined by single spaces, so a
+    // local character offset maps straight back onto the source word list.
+    final word = _sourceWordAt(start);
+    if (word == null) return null;
+
+    final base = widget.paragraph.startOffset;
+    return (word: word, start: base + start, end: base + end);
+  }
+
+  /// Finds which source word a local character offset falls in.
+  WordModel? _sourceWordAt(int localOffset) {
+    var cursor = 0;
+    for (final word in widget.source.words) {
+      final end = cursor + word.text.length;
+      if (localOffset < end) return word;
+      cursor = end + 1; // +1 for the joining space
+    }
+    return widget.source.words.isEmpty ? null : widget.source.words.last;
+  }
+
+  bool _isWhitespace(int codeUnit) =>
+      codeUnit == 0x20 ||
+      codeUnit == 0x09 ||
+      codeUnit == 0x0A ||
+      codeUnit == 0x0D ||
+      codeUnit == 0xA0;
+
+  /// The part of the controller's highlight that falls inside this paragraph,
+  /// in paragraph-local offsets. Null when the highlight is elsewhere (or
+  /// absent), which is the value that keeps unrelated paragraphs from
+  /// rebuilding.
+  ({int start, int end})? _localHighlightRange() {
+    return widget.playback.highlightRange;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.playback,
+      builder: (context, _) {
+        final global = _localHighlightRange();
+
+        // Clip the chapter-wide range to this paragraph; `null` (not a
+        // zero-length range) when it doesn't overlap, so the common case
+        // stays a plain Text.
+        int? start;
+        int? end;
+        if (global != null) {
+          final overlapStart = global.start < widget.paragraph.startOffset
+              ? widget.paragraph.startOffset
+              : (global.start > widget.paragraph.endOffset
+                  ? widget.paragraph.endOffset
+                  : global.start);
+          final overlapEnd = global.end > widget.paragraph.endOffset
+              ? widget.paragraph.endOffset
+              : (global.end < widget.paragraph.startOffset
+                  ? widget.paragraph.startOffset
+                  : global.end);
+          if (overlapEnd > overlapStart) {
+            start = overlapStart - widget.paragraph.startOffset;
+            end = overlapEnd - widget.paragraph.startOffset;
+          }
+        }
+
+        final text = widget.paragraph.text;
+        final Widget textWidget;
+        if (start == null || end == null) {
+          textWidget = Text(text, style: _style, key: _textKey);
+        } else {
+          textWidget = Text.rich(
+            TextSpan(
+              style: _style,
+              children: [
+                TextSpan(text: text.substring(0, start)),
+                TextSpan(
+                  text: text.substring(start, end),
+                  style: _style.copyWith(
+                    color: widget.highlightColor,
+                    backgroundColor:
+                        widget.highlightColor.withValues(alpha: 0.25),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextSpan(text: text.substring(end)),
+              ],
+            ),
+            key: _textKey,
+          );
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: (details) {
+            final hit = _wordAt(details.localPosition);
+            if (hit == null) return;
+            widget.onWordTap(hit.word, hit.start, hit.end);
+          },
+          onLongPressStart: (details) {
+            final hit = _wordAt(details.localPosition);
+            if (hit == null) return;
+            widget.onWordLongPress(hit.word);
+          },
+          child: textWidget,
+        );
+      },
+    );
+  }
 }

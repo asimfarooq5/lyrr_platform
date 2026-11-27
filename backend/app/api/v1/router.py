@@ -4,7 +4,8 @@ API Router - v1
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, books, users, sync, media, admin, payments
+from app.api.v1.endpoints import (auth, books, users, sync, media, admin,
+                                  payments, dictionary, lectures)
 
 api_router = APIRouter()
 
@@ -28,3 +29,9 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 # Payment routes
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
+
+# Narration: what a reader buys and plays
+api_router.include_router(lectures.router, prefix="/books", tags=["lectures"])
+
+# Dictionary routes (Kindle-style tap-to-define)
+api_router.include_router(dictionary.router, prefix="/dictionary", tags=["dictionary"])

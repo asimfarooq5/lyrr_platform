@@ -2,12 +2,15 @@
 /// 
 /// Browse and search for new books
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/app_providers.dart';
 import '../../../data/models/book_model.dart';
 import '../../theme/app_theme.dart';
 import '../reader/reader_screen.dart';
+import 'authors_screen.dart';
 
 class DiscoverTab extends ConsumerStatefulWidget {
   const DiscoverTab({super.key});
@@ -20,9 +23,23 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
   final _searchController = TextEditingController();
   bool _isLoading = true;
   List<BookModel> _books = [];
+  /// Books added while their detail sheet was open, so the sheet's button
+  /// switches to "In Your Library" without a restart.
+  final Map<String, bool> _purchasedInSheet = {};
   List<BookModel> _featuredBooks = [];
+  /// Books the reader is part-way through, most recently read first. Shown at
+  /// the top of the store so getting back into a book is one tap — the thing
+  /// readers reach for most, and the first rail a reader expects to see.
+  List<BookModel> _continueReading = [];
   String? _error;
   String? _selectedLanguage;
+
+  List<BookModel> get _displayedBooks {
+    if (_selectedLanguage == null) return _books;
+    return _books
+        .where((b) => b.language.toLowerCase() == _selectedLanguage!.toLowerCase())
+        .toList();
+  }
 
   @override
   void initState() {
@@ -46,6 +63,25 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       // Load all books
       final allData = await repo.getBooks();
       _books = allData.map((b) => BookModel.fromJson(b)).toList();
+
+      // Books in progress, newest first. Best-effort: the store is still
+      // browsable if this fails, so a hiccup here must not blank the page.
+      try {
+        final library = await ref.read(userDataRepositoryProvider).getLibrary();
+        _continueReading = library
+            .map((b) => BookModel.fromJson(b as Map<String, dynamic>))
+            .where((b) => (b.progressPercent ?? 0) > 0)
+            .toList()
+          ..sort((a, b) {
+            final ad = a.lastReadAt, bd = b.lastReadAt;
+            if (ad == null && bd == null) return 0;
+            if (ad == null) return 1;
+            if (bd == null) return -1;
+            return bd.compareTo(ad);
+          });
+      } catch (_) {
+        _continueReading = [];
+      }
 
       setState(() {
         _isLoading = false;
@@ -84,13 +120,14 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
     }
   }
 
-  Future<void> _purchaseBook(BookModel book) async {
+  /// Returns true when the book ends up in the reader's library.
+  Future<bool> _purchaseBook(BookModel book) async {
     try {
       final repo = ref.read(paymentsRepositoryProvider);
 
       // Show payment method sheet (pay-per-book, FRS §10)
       final method = await _showPaymentMethodSheet(book);
-      if (method == null) return;
+      if (method == null) return false;
 
       final payment = await repo.checkout(
         method: method,
@@ -106,15 +143,19 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
         }
       }
 
-      if (!mounted) return;
+      if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${book.title} added to your library')),
       );
+      // Reload so the card and detail sheet stop offering it.
+      unawaited(_loadBooks());
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to purchase: ${e.toString().replaceAll('Exception: ', '')}')),
       );
+      return false;
     }
   }
 
@@ -138,7 +179,10 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Buy "${book.title}"',
+                    Text(
+                        book.formattedPrice.isEmpty
+                            ? 'Add "${book.title}" to your library'
+                            : 'Buy "${book.title}" — ${book.formattedPrice}',
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 8),
                     Text('Choose payment method',
@@ -234,8 +278,17 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Discover'),
+        title: const Text('Store'),
         actions: [
+          // Browse by author (FRS §5)
+          IconButton(
+            icon: const Icon(Icons.people_alt_outlined),
+            tooltip: 'Browse authors',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AuthorsScreen()),
+            ),
+          ),
           // Language filter
           PopupMenuButton<String?>(
             icon: const Icon(Icons.language),
@@ -318,13 +371,42 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       onRefresh: _loadBooks,
       child: CustomScrollView(
         slivers: [
+          // Continue reading — first thing on the page when there is something
+          // to go back to, so resuming takes one tap.
+          if (_continueReading.isNotEmpty && _searchController.text.isEmpty) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Text('Continue Reading', style: theme.textTheme.displaySmall),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 232,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _continueReading.length,
+                  itemBuilder: (context, index) {
+                    final book = _continueReading[index];
+                    return _ContinueReadingCard(
+                      book: book,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => ReaderScreen(bookId: book.id),
+                      )),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
           // Featured section
           if (_featuredBooks.isNotEmpty && _searchController.text.isEmpty) ...[
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Text(
-                  'Featured',
+                  'Bestsellers',
                   style: theme.textTheme.displaySmall,
                 ),
               ),
@@ -351,34 +433,73 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-              child: Text(
-                _searchController.text.isEmpty ? 'All Books' : 'Search Results',
-                style: theme.textTheme.displaySmall,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _searchController.text.isEmpty ? 'Browse the Store' : 'Search Results',
+                    style: theme.textTheme.displaySmall,
+                  ),
+                  if (_selectedLanguage != null)
+                    ActionChip(
+                      avatar: const Icon(Icons.language, size: 14),
+                      label: Text(_getLanguageName(_selectedLanguage!)),
+                      onPressed: () => setState(() => _selectedLanguage = null),
+                      tooltip: 'Tap to clear filter',
+                    ),
+                ],
               ),
             ),
           ),
           
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.65,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
+          if (_displayedBooks.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.search_off, size: 48, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No books found',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      if (_selectedLanguage != null) ...[
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => setState(() => _selectedLanguage = null),
+                          child: const Text('Clear language filter'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final book = _books[index];
-                  return _BookGridCard(
-                    book: book,
-                    onTap: () => _showBookDetails(book),
-                  );
-                },
-                childCount: _books.length,
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.65,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final book = _displayedBooks[index];
+                    return _BookGridCard(
+                      book: book,
+                      onTap: () => _showBookDetails(book),
+                    );
+                  },
+                  childCount: _displayedBooks.length,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -388,15 +509,26 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, controller) => _BookDetailsSheet(
-          book: book,
-          scrollController: controller,
-          onPurchase: () => _purchaseBook(book),
+      builder: (_) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.9,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (_, controller) => _BookDetailsSheet(
+            book: book,
+            scrollController: controller,
+            isPurchasedOverride: _purchasedInSheet[book.id],
+            onPurchase: () async {
+              final added = await _purchaseBook(book);
+              if (!added) return;
+              _purchasedInSheet[book.id] = true;
+              // Close the sheet so the reader lands back on the store and can
+              // actually see the confirmation — a snackbar raised while a modal
+              // sheet is up sits behind it and never gets read.
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
+            },
+          ),
         ),
       ),
     );
@@ -416,6 +548,84 @@ class _DiscoverTabState extends ConsumerState<DiscoverTab> {
       'ar': 'Arabic',
     };
     return names[code] ?? code;
+  }
+}
+
+/// A book the reader is part-way through: cover, title, and how far in they
+/// are, so the shelf answers "where was I?" at a glance.
+class _ContinueReadingCard extends StatelessWidget {
+  final BookModel book;
+  final VoidCallback onTap;
+
+  const _ContinueReadingCard({required this.book, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percent = (book.progressPercent ?? 0).clamp(0, 100).toDouble();
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 140,
+        margin: const EdgeInsets.only(right: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: AppColors.primary.withOpacity(0.1),
+                      child: book.resolvedCoverUrl != null
+                          ? Image.network(
+                              book.resolvedCoverUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(Icons.book, color: AppColors.primary),
+                              ),
+                            )
+                          : const Center(
+                              child: Icon(Icons.book, color: AppColors.primary),
+                            ),
+                    ),
+                    // Progress along the bottom of the cover.
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LinearProgressIndicator(
+                        value: percent / 100,
+                        minHeight: 4,
+                        backgroundColor: Colors.black.withOpacity(0.35),
+                        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              book.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${percent.round()}% read',
+              style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -479,8 +689,27 @@ class _FeaturedBookCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            const SizedBox(height: 2),
+            _PriceTag(book: book),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PriceTag extends StatelessWidget {
+  final BookModel book;
+  const _PriceTag({required this.book});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      book.formattedPrice,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: AppColors.primary,
       ),
     );
   }
@@ -533,6 +762,8 @@ class _BookGridCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          const SizedBox(height: 2),
+          _PriceTag(book: book),
         ],
       ),
     );
@@ -543,12 +774,18 @@ class _BookDetailsSheet extends StatelessWidget {
   final BookModel book;
   final ScrollController scrollController;
   final VoidCallback onPurchase;
+  /// Overrides book.isPurchased so the sheet reflects a purchase made while it
+  /// is open, without waiting for the list to reload.
+  final bool? isPurchasedOverride;
 
   const _BookDetailsSheet({
     required this.book,
     required this.scrollController,
     required this.onPurchase,
+    this.isPurchasedOverride,
   });
+
+  bool get _owned => isPurchasedOverride ?? book.isPurchased;
 
   @override
   Widget build(BuildContext context) {
@@ -641,7 +878,7 @@ class _BookDetailsSheet extends StatelessWidget {
                           Icons.timer,
                           book.formattedDuration,
                         ),
-                      if (book.language != null)
+                      if (book.language.isNotEmpty)
                         _buildMetadataChip(
                           Icons.language,
                           book.language.toUpperCase(),
@@ -686,17 +923,28 @@ class _BookDetailsSheet extends StatelessWidget {
             ),
           ),
           
-          // Purchase button
+          // Purchase button (Store, FRS §10). Every book is added to the
+          // library through the payment flow — there is no free or sample path.
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             child: SafeArea(
               top: false,
-              child: ElevatedButton(
-                onPressed: onPurchase,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 56),
-                ),
-                child: const Text('Add to Library'),
+              child: Column(
+                children: [
+                  ElevatedButton(
+                    onPressed: _owned ? null : onPurchase,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 56),
+                    ),
+                    child: Text(
+                      _owned
+                          ? 'In Your Library'
+                          : book.formattedPrice.isEmpty
+                              ? 'Add to Library'
+                              : 'Add to Library — ${book.formattedPrice}',
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

@@ -44,18 +44,17 @@ class SyncWordSchema(BaseModel):
 
 class ChapterSchema(BaseModel):
     id: str
+    # Must be declared: the response_model filters the payload down to these
+    # fields, and the app stores chapters against their book id. Omitting it
+    # silently emptied that field, so every downloaded chapter was filed under
+    # an empty book id and offline reading could never find them.
+    book_id: str = ""
     title: str
     order_index: int
     paragraphs: List[ParagraphSchema] = Field(default=[], validation_alias="content")
     sync_data: Optional[List[SyncWordSchema]] = None
     
     model_config = {"from_attributes": True}
-
-
-class BookMediaSchema(BaseModel):
-    id: str
-    start: float
-    end: float
 
 
 class BookMediaSchema(BaseModel):
@@ -88,6 +87,33 @@ class BookUpdate(BaseModel):
     status: Optional[BookStatus] = None
 
 
+class AdminBookUpdate(BaseModel):
+    """Explicit allow-list for admin book edits.
+
+    Replaces the previous unvalidated ``setattr`` loop which allowed a client to
+    overwrite any model column (mass assignment). Only the fields below are
+    editable; anything else in the request is rejected by Pydantic.
+    """
+
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    subtitle: Optional[str] = Field(None, max_length=255)
+    author: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    cover_url: Optional[str] = Field(None, max_length=500)
+    book_type: Optional[str] = Field(None, max_length=50)
+    language: Optional[Language] = None
+    status: Optional[BookStatus] = None
+    price: Optional[float] = Field(None, ge=0)
+    isbn: Optional[str] = Field(None, max_length=20)
+    duration: Optional[int] = Field(None, ge=0)
+    word_count: Optional[int] = Field(None, ge=0)
+    is_featured: Optional[bool] = None
+    publisher: Optional[str] = Field(None, max_length=255)
+    published_at: Optional[datetime] = None
+
+    model_config = {"extra": "forbid"}
+
+
 class BookResponse(BookBase):
     id: str
     cover_url: Optional[str] = None
@@ -96,9 +122,13 @@ class BookResponse(BookBase):
     word_count: Optional[int] = None
     status: BookStatus
     is_featured: bool
+    price: Optional[float] = None
+    # Whether the signed-in reader already owns this book. Drives the store
+    # button ("Add to Library" vs "In Your Library").
+    is_purchased: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -110,6 +140,7 @@ class BookDetailResponse(BookResponse):
 
 class BookContentResponse(BaseModel):
     chapters: List[ChapterSchema]
+    is_preview: bool = False
 
 
 class BookSyncResponse(BaseModel):

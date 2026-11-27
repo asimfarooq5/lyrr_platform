@@ -42,6 +42,11 @@ endif()
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
   target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  # flutter_secure_storage_linux vendors an old nlohmann/json (json.hpp)
+  # whose legacy `operator "" _json` literal-operator spelling newer Clang
+  # (21+) treats as a hard error under -Werror. Downgrade just that one
+  # warning back to non-fatal rather than disabling -Werror project-wide.
+  target_compile_options(${TARGET} PRIVATE -Wno-error=deprecated-literal-operator)
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()

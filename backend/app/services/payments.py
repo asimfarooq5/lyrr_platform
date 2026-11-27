@@ -19,6 +19,7 @@ from typing import Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.security import generate_drm_key
@@ -81,9 +82,17 @@ class PaymentGateway(abc.ABC):
 
 
 class CardGateway(PaymentGateway):
-    """Credit/Debit card payments via a generic acquiring processor."""
+    """Credit/Debit card payments via Stripe."""
 
     method = METHOD_CARD
+
+    # Stripe uses zero-decimal amounts for these currencies (no "cents").
+    _ZERO_DECIMAL_CURRENCIES = {"xaf", "xof", "jpy", "krw", "vnd"}
+
+    def _stripe_amount(self, amount: float, currency: str) -> int:
+        if currency.lower() in self._ZERO_DECIMAL_CURRENCIES:
+            return int(round(amount))
+        return int(round(amount * 100))
 
     async def create_charge(self, amount, currency, reference, description,
                             customer, meta=None):
@@ -94,52 +103,209 @@ class CardGateway(PaymentGateway):
                 "gateway_reference": f"card_{reference}",
                 "message": "Card charge awaiting confirmation",
             }
-        # In live mode this would call a PSP (Stripe/Checkout.com/etc.).
-        raise PaymentError(
-            "Live card processing is not configured. Set PAYMENT_MODE=sandbox "
-            "for the local checkout flow."
-        )
+        if not settings.STRIPE_SECRET_KEY:
+            raise PaymentError("Live card processing requires STRIPE_SECRET_KEY to be set.")
+
+        import stripe
+        from starlette.concurrency import run_in_threadpool
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            intent = await run_in_threadpool(
+                stripe.PaymentIntent.create,
+                amount=self._stripe_amount(amount, currency),
+                currency=currency.lower(),
+                description=description,
+                metadata={"reference": reference, **(meta or {})},
+                receipt_email=(customer or {}).get("email"),
+            )
+        except Exception as exc:
+            raise PaymentError(f"Stripe charge failed: {exc}") from exc
+
+        return {
+            "status": STATUS_AWAITING,
+            "gateway_reference": intent["id"],
+            "client_secret": intent["client_secret"],
+            "message": "Confirm the card payment using the returned client secret",
+        }
 
     async def verify_charge(self, reference):
         if self.is_sandbox:
             return {"status": STATUS_COMPLETED, "gateway_reference": f"card_{reference}"}
-        raise PaymentError("Live card processing is not configured.")
+        if not settings.STRIPE_SECRET_KEY:
+            raise PaymentError("Live card processing requires STRIPE_SECRET_KEY to be set.")
+
+        import stripe
+        from starlette.concurrency import run_in_threadpool
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            intent = await run_in_threadpool(stripe.PaymentIntent.retrieve, reference)
+        except Exception as exc:
+            raise PaymentError(f"Stripe verification failed: {exc}") from exc
+
+        status_map = {
+            "succeeded": STATUS_COMPLETED,
+            "processing": STATUS_AWAITING,
+            "requires_payment_method": STATUS_FAILED,
+            "requires_action": STATUS_AWAITING,
+            "canceled": STATUS_CANCELLED,
+        }
+        return {
+            "status": status_map.get(intent["status"], STATUS_PENDING),
+            "gateway_reference": intent["id"],
+        }
 
 
-class MobileMoneyGateway(PaymentGateway):
-    """Base Mobile Money gateway (Orange Money / MTN MoMo share the flow)."""
+class CampayGateway(PaymentGateway):
+    """Mobile Money collection via CamPay (MTN + Orange, Cameroon).
 
-    method = ""
+    CamPay is the aggregator used for both carriers: the phone number
+    determines the operator, so MTN and Orange share this one integration.
+    Docs: https://demo.campay.net/en/developer/
+
+    Flow:
+      1. POST /token/            -> short-lived bearer token
+      2. POST /collect/          -> prompts the payer on their handset; returns
+                                    a ``reference`` (UUID4)
+      3. GET  /transaction/{ref}/ -> PENDING | SUCCESSFUL | FAILED
+      4. Webhook (configured in the CamPay app) notifies on settle.
+    """
+
+    # CamPay expects the MSISDN with country code and no "+", e.g. 2376XXXXXXXX.
+    _COUNTRY_CODE = "237"
+
+    def _normalise_phone(self, raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        digits = "".join(ch for ch in str(raw) if ch.isdigit())
+        if not digits:
+            return None
+        if digits.startswith(self._COUNTRY_CODE):
+            return digits
+        if digits.startswith("0"):
+            digits = digits[1:]
+        return f"{self._COUNTRY_CODE}{digits}"
+
+    async def _get_token(self, client) -> str:
+        """Return a bearer token: the permanent app token if set, else one
+        minted from the app username/password."""
+        if settings.CAMPAY_PERMANENT_TOKEN:
+            return settings.CAMPAY_PERMANENT_TOKEN
+        if not (settings.CAMPAY_USERNAME and settings.CAMPAY_PASSWORD):
+            raise PaymentError(
+                "CamPay requires CAMPAY_PERMANENT_TOKEN or "
+                "CAMPAY_USERNAME + CAMPAY_PASSWORD."
+            )
+        resp = await client.post(
+            f"{settings.CAMPAY_BASE_URL}/token/",
+            json={
+                "username": settings.CAMPAY_USERNAME,
+                "password": settings.CAMPAY_PASSWORD,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["token"]
 
     async def create_charge(self, amount, currency, reference, description,
                             customer, meta=None):
-        msisdn = (customer or {}).get("phone") or (meta or {}).get("phone")
+        phone = self._normalise_phone(
+            (customer or {}).get("phone") or (meta or {}).get("phone")
+        )
         if self.is_sandbox:
-            logger.info(
-                "Sandbox %s charge %s for amount %.2f %s",
-                self.method, reference, amount, currency,
-            )
-            # Mobil money requires the user to approve on their handset; the
-            # charge is placed in awaiting state and confirmed by callback.
+            logger.info("Sandbox %s charge %s for amount %.2f %s (phone=%s)",
+                        self.method, reference, amount, currency, phone)
             return {
-                "status": STATUS_AWAITING if msisdn else STATUS_PENDING,
+                "status": STATUS_AWAITING if phone else STATUS_PENDING,
                 "gateway_reference": f"{self.method}_{reference}",
-                "message": "Confirm the payment on your mobile money wallet" if msisdn
-                else "Mobile money charge pending",
+                "message": "Confirm the payment on your mobile money wallet"
+                           if phone else "A phone number is required",
             }
-        raise PaymentError(f"Live {self.method} is not configured.")
+
+        if not phone:
+            raise PaymentError("A phone number is required for mobile money.")
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                token = await self._get_token(client)
+                resp = await client.post(
+                    f"{settings.CAMPAY_BASE_URL}/collect/",
+                    headers={
+                        "Authorization": f"Token {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        # CamPay rejects decimals — send an integer string.
+                        "amount": str(int(round(amount))),
+                        "currency": currency,
+                        "from": phone,
+                        "description": description or "LYRR purchase",
+                        # Idempotency key: re-using it returns the first result.
+                        "external_reference": reference,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"CamPay charge failed: {exc}") from exc
+
+        gateway_reference = data.get("reference")
+        if not gateway_reference:
+            raise PaymentError("CamPay did not return a transaction reference.")
+
+        return {
+            "status": STATUS_AWAITING,
+            "gateway_reference": gateway_reference,
+            "message": "Approve the payment prompt on your phone",
+        }
 
     async def verify_charge(self, reference):
+        """Look up a CamPay transaction by its reference."""
         if self.is_sandbox:
-            return {"status": STATUS_COMPLETED, "gateway_reference": f"{self.method}_{reference}"}
-        raise PaymentError(f"Live {self.method} is not configured.")
+            return {"status": STATUS_COMPLETED,
+                    "gateway_reference": f"{self.method}_{reference}"}
+
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                token = await self._get_token(client)
+                resp = await client.get(
+                    f"{settings.CAMPAY_BASE_URL}/transaction/{reference}/",
+                    headers={
+                        "Authorization": f"Token {token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise PaymentError(f"CamPay verification failed: {exc}") from exc
+
+        # CamPay: PENDING | SUCCESSFUL | FAILED
+        status_map = {
+            "SUCCESSFUL": STATUS_COMPLETED,
+            "SUCCESS": STATUS_COMPLETED,
+            "FAILED": STATUS_FAILED,
+            "PENDING": STATUS_AWAITING,
+        }
+        return {
+            "status": status_map.get(str(data.get("status", "")).upper(), STATUS_PENDING),
+            "gateway_reference": data.get("reference", reference),
+            "operator": data.get("operator"),
+            "reason": data.get("reason"),
+        }
 
 
-class OrangeMoneyGateway(MobileMoneyGateway):
+class OrangeMoneyGateway(CampayGateway):
+    """Orange Money via CamPay (operator is derived from the phone number)."""
+
     method = METHOD_ORANGE_MONEY
 
 
-class MTNMoMoGateway(MobileMoneyGateway):
+class MTNMoMoGateway(CampayGateway):
+    """MTN Mobile Money via CamPay (operator is derived from the phone number)."""
+
     method = METHOD_MTN_MOMO
 
 
@@ -218,8 +384,22 @@ async def create_checkout(
         amount = plan.price
         currency = plan.currency or currency
         description = f"Subscription: {plan.name} ({plan.interval})"
+    elif item_type == "lecture":
+        if not book_id:
+            raise PaymentError("book_id is required for a listen checkout")
+        # One listen of this book's narration. The admin sets the price when the
+        # recording is uploaded.
+        from app.models.book import Book
+        result = await db.execute(select(Book).where(Book.id == book_id))
+        book = result.scalar_one_or_none()
+        if not book:
+            raise PaymentError("Book not found")
+        if not book.lecture_price:
+            raise PaymentError("This book is not sold as a listen")
+        amount = float(book.lecture_price)
+        description = f"Listen: {book.title}"
     else:
-        raise PaymentError("item_type must be 'book' or 'subscription'")
+        raise PaymentError("item_type must be 'book', 'subscription' or 'lecture'")
 
     reference = f"LYRR{uuid.uuid4().hex[:16].upper()}"
 
@@ -251,10 +431,13 @@ async def initiate_payment(
     book_id: Optional[str] = None,
     plan_id: Optional[str] = None,
     phone: Optional[str] = None,
+    metadata: Optional[Dict] = None,
 ) -> Payment:
     """Create a checkout and ask the gateway to initiate a charge.
 
-    Returns the Payment with gateway status applied.
+    Returns the Payment with gateway status applied. Metadata is stored at
+    creation, not afterwards: a card charge settles immediately in sandbox, so
+    anything the entitlement needs must already be on the row.
     """
     payment = await create_checkout(
         db,
@@ -264,6 +447,7 @@ async def initiate_payment(
         book_id=book_id,
         plan_id=plan_id,
         customer={"phone": phone} if phone else None,
+        metadata=metadata,
     )
     if not payment.reference:
         raise PaymentError("Failed to create payment")
@@ -281,9 +465,17 @@ async def initiate_payment(
         status = result.get("status", STATUS_PENDING)
         payment.status = status
         payment.gateway_reference = result.get("gateway_reference")
+        # Live-mode gateways return client-side checkout data the app needs
+        # to finish the payment (Stripe client_secret, Orange payment_url).
+        extra = {k: v for k, v in result.items()
+                 if k in ("client_secret", "payment_url") and v}
+        if extra:
+            payment.payment_metadata = {**(payment.payment_metadata or {}), **extra}
         # For card sandbox settlement, auto-complete so checkout works offline.
         if method == METHOD_CARD and status == STATUS_AWAITING and payment.is_auto_confirmable():
-            payment.status = STATUS_COMPLETED
+            # Do NOT set the status first: complete_payment returns early for an
+            # already-completed payment, which skips granting the entitlement —
+            # the reader would pay and receive nothing.
             await complete_payment(db, payment, auto=True)
             return payment
         await db.commit()
@@ -317,6 +509,19 @@ async def complete_payment(
         await _grant_book_access(db, payment.user_id, payment.book_id)
     elif payment.item_type == "subscription" and payment.plan_id:
         await _grant_subscription(db, payment.user_id, payment.plan_id)
+    elif payment.item_type == "lecture" and payment.book_id:
+        # A settled listen grants exactly one playback of the recording that was
+        # bought — the language travels with the payment.
+        from app.services import lectures as lecture_service
+        meta = payment.payment_metadata or {}
+        await lecture_service.grant(
+            db,
+            payment.user_id,
+            payment.book_id,
+            meta.get("language", "en"),
+            listens=1,
+            price=payment.amount,
+        )
 
     await db.commit()
     await db.refresh(payment)
@@ -324,7 +529,11 @@ async def complete_payment(
 
 
 async def _grant_book_access(db: AsyncSession, user_id: str, book_id: str) -> None:
-    """Create/refresh the UserBook license for a purchased book."""
+    """Create/refresh the UserBook license for a purchased book.
+
+    (user_id, book_id) is unique, so a concurrent grant is caught and turned
+    into an update rather than raising.
+    """
     result = await db.execute(
         select(UserBook).where(
             UserBook.user_id == user_id, UserBook.book_id == book_id
@@ -339,7 +548,18 @@ async def _grant_book_access(db: AsyncSession, user_id: str, book_id: str) -> No
             license_type="purchase",
             expires_at=None,
         )
-        db.add(user_book)
+        try:
+            async with db.begin_nested():
+                db.add(user_book)
+        except IntegrityError:
+            # Lost the race — the row now exists; fall back to updating it.
+            user_book = (await db.execute(
+                select(UserBook).where(
+                    UserBook.user_id == user_id, UserBook.book_id == book_id
+                )
+            )).scalar_one()
+            user_book.license_type = "purchase"
+            user_book.expires_at = None
     else:
         user_book.license_type = "purchase"
         user_book.expires_at = None

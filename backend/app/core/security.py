@@ -2,7 +2,7 @@
 Security utilities - JWT, encryption, password hashing
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -52,10 +52,11 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     """Create JWT access token"""
     to_encode = data.copy()
     
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     # Only set default type if not already provided
     if "type" not in to_encode:
@@ -68,7 +69,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 def create_refresh_token(data: Dict[str, Any]) -> str:
     """Create JWT refresh token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
@@ -81,6 +82,41 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except JWTError:
         return None
+
+
+def create_media_token(
+    book_id: str,
+    user_id: str,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    """Create a short-lived, book-scoped token for audio streaming.
+
+    WHY A SEPARATE TOKEN TYPE (rather than reusing the access token):
+
+    Audio is consumed by two things that cannot attach an `Authorization`
+    header — `just_audio`'s player and the offline downloader — so the media
+    URL has to carry its own credential in the query string.
+
+    Putting the long-lived *access* token in a URL would be a real
+    vulnerability: URLs end up in player logs, proxy logs and browser history,
+    and an access token there would grant full account access. This token is
+    deliberately narrow — it is scoped to ONE book, expires quickly, and is
+    accepted only by the audio endpoint.
+
+    Cover images deliberately do NOT use this: catalog art is public (it is
+    shown while browsing the store), whereas the book's text and audio are the
+    protected content FRS §14 is about.
+    """
+    to_encode: Dict[str, Any] = {
+        "sub": user_id,
+        "book_id": book_id,
+        "type": "media",
+    }
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.MEDIA_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode["exp"] = expire
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 def encrypt_data(data: str) -> str:

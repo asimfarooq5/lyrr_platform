@@ -78,7 +78,7 @@ shell:
 test: test-backend
 
 test-backend:
-	cd backend && source venv/bin/activate && pytest -v
+	cd backend && source venv/bin/activate && PYTHONPATH=. python -m unittest discover -s tests -v
 
 # Code Quality
 lint:

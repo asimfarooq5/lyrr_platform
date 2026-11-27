@@ -8,8 +8,10 @@ import '../data/services/auth_service.dart';
 import '../data/services/local_database.dart';
 import '../data/services/sync_service.dart';
 import '../data/services/drm_service.dart';
+import '../data/services/download_service.dart';
 import '../data/services/api_client.dart';
 import '../data/models/payment_model.dart';
+import '../data/models/book_model.dart';
 
 /// Shared preferences provider
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
@@ -70,6 +72,15 @@ final drmServiceProvider = Provider<DRMService>((ref) {
   return DRMService(authService: authService);
 });
 
+/// Offline download service provider (FRS §9)
+final downloadServiceProvider = Provider<DownloadService>((ref) {
+  final db = ref.watch(databaseProvider);
+  final authService = ref.watch(authServiceProvider);
+  final service = DownloadService(db: db, authService: authService);
+  ref.onDispose(() => service.dispose());
+  return service;
+});
+
 /// Sync status provider
 final syncStatusProvider = StreamProvider((ref) {
   final syncService = ref.watch(syncServiceProvider);
@@ -101,6 +112,12 @@ final paymentsRepositoryProvider = Provider((ref) {
   return PaymentsRepository(apiClient: apiClient);
 });
 
+/// Collections repository provider (Kindle-style shelves)
+final collectionsRepositoryProvider = Provider((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return CollectionsRepository(apiClient: apiClient);
+});
+
 /// Books repository
 class BooksRepository {
   final ApiClient apiClient;
@@ -119,6 +136,25 @@ class BooksRepository {
 
     if (response.success && response.data != null) {
       return response.data!['items'] as List<dynamic>;
+    }
+
+    return [];
+  }
+
+  /// Distinct authors with published book counts (FRS §5).
+  Future<List<({String name, int bookCount})>> getAuthors() async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.authors,
+    );
+
+    if (response.success && response.data != null) {
+      return (response.data!['items'] as List? ?? [])
+          .map((a) => (
+                name: (a['name'] ?? '') as String,
+                bookCount: (a['book_count'] ?? 0) as int,
+              ))
+          .where((a) => a.name.isNotEmpty)
+          .toList();
     }
 
     return [];
@@ -164,6 +200,26 @@ class BooksRepository {
     await apiClient.post(ApiEndpoints.bookPurchase(bookId));
   }
 
+  /// The recordings this book has, their price, and how many listens the
+  /// reader still holds.
+  Future<Map<String, dynamic>> lectureInfo(String bookId) async {
+    final response = await apiClient.get<Map<String, dynamic>>(
+      ApiEndpoints.bookLectures(bookId),
+    );
+    if (response.success && response.data != null) return response.data!;
+    throw Exception(response.error ?? 'Could not load narration');
+  }
+
+  /// Spend one listen and get the clip to play. Throws when none are left.
+  Future<Map<String, dynamic>> startLecture(String bookId, String language) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.bookLectureStart(bookId),
+      body: {'language': language},
+    );
+    if (response.success && response.data != null) return response.data!;
+    throw Exception(response.error ?? 'No listens left');
+  }
+
   Future<void> downloadBook(String bookId) async {
     await apiClient.post(ApiEndpoints.bookDownload(bookId));
   }
@@ -191,6 +247,11 @@ class UserDataRepository {
     }
 
     return [];
+  }
+
+  /// Remove a book (and its reading data) from the reader's library.
+  Future<void> removeFromLibrary(String bookId) async {
+    await apiClient.delete(ApiEndpoints.removeFromLibrary(bookId));
   }
 
   Future<List<dynamic>> getBookmarks(String bookId) async {
@@ -393,5 +454,57 @@ class PaymentsRepository {
           .toList();
     }
     return [];
+  }
+}
+
+/// Collections repository - Kindle-style shelves
+class CollectionsRepository {
+  final ApiClient apiClient;
+
+  CollectionsRepository({required this.apiClient});
+
+  Future<List<CollectionModel>> getCollections() async {
+    final response = await apiClient.get<List<dynamic>>(ApiEndpoints.collections);
+    if (response.success && response.data != null) {
+      return response.data!
+          .map((c) => CollectionModel.fromJson(c as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<CollectionModel> createCollection(String name) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.collections,
+      body: {'name': name},
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to create collection');
+  }
+
+  Future<void> deleteCollection(String collectionId) async {
+    await apiClient.delete(ApiEndpoints.deleteCollection(collectionId));
+  }
+
+  Future<CollectionModel> addBook(String collectionId, String bookId) async {
+    final response = await apiClient.post<Map<String, dynamic>>(
+      ApiEndpoints.collectionBook(collectionId, bookId),
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to add book to collection');
+  }
+
+  Future<CollectionModel> removeBook(String collectionId, String bookId) async {
+    final response = await apiClient.delete<Map<String, dynamic>>(
+      ApiEndpoints.collectionBook(collectionId, bookId),
+    );
+    if (response.success && response.data != null) {
+      return CollectionModel.fromJson(response.data!);
+    }
+    throw Exception(response.error ?? 'Failed to remove book from collection');
   }
 }

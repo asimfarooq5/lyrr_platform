@@ -61,9 +61,13 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8080",
-        "https://lyrr.app",
-        "https://admin.lyrr.app",
+        # No domain yet: the platform runs on its server address.
+        "http://100.27.229.125:8080",
     ]
+    # Flutter's web dev server binds a new random localhost port every run,
+    # so a fixed allow-list can never cover it — match any localhost/127.0.0.1
+    # port instead. Only applied outside production (see main.py).
+    CORS_ORIGIN_REGEX_DEV: str = r"^https?://(localhost|127\.0\.0\.1):\d+$"
     
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
@@ -73,7 +77,7 @@ class Settings(BaseSettings):
     # Media
     MAX_UPLOAD_SIZE_MB: int = 500
     MAX_COVER_SIZE_MB: int = 10
-    MEDIA_AUTH_ENABLED: bool = False
+    MEDIA_AUTH_ENABLED: bool = True
     SUPPORTED_AUDIO_FORMATS: List[str] = ["mp3", "m4a", "wav", "flac"]
     ALLOWED_AUDIO_MIME_TYPES: List[str] = ["audio/mpeg", "audio/mp4", "audio/wav", "audio/flac", "audio/x-m4a", "audio/aac"]
     ALLOWED_IMAGE_MIME_TYPES: List[str] = ["image/jpeg", "image/png", "image/webp"]
@@ -90,10 +94,74 @@ class Settings(BaseSettings):
     PAYMENT_CURRENCY: str = "XAF"
     DEFAULT_BOOK_PRICE: float = 500.0
 
+    # Live payment gateway credentials (only required when PAYMENT_MODE=live)
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+
+    # CamPay — Mobile Money aggregator for MTN + Orange (Cameroon).
+    # Docs: https://demo.campay.net/en/developer/
+    # Sandbox base: https://demo.campay.net/api   Production: https://www.campay.net/api
+    CAMPAY_BASE_URL: str = "https://demo.campay.net/api"
+    # Either the permanent app token (APP KEYS) or the app username/password
+    # issued when you register an application on Campay.
+    CAMPAY_PERMANENT_TOKEN: Optional[str] = None
+    CAMPAY_USERNAME: Optional[str] = None
+    CAMPAY_PASSWORD: Optional[str] = None
+    # Used to validate the HS256 JWT signature on Campay webhook callbacks.
+    CAMPAY_WEBHOOK_KEY: Optional[str] = None
+
+    # Email/phone verification + password reset delivery
+    VERIFICATION_MODE: str = "sandbox"  # sandbox (return code) or live (send email/SMS)
+    # Safety gate: even in sandbox/VERIFICATION_MODE, OTPs and password-reset
+    # tokens are only echoed back in API responses when this is explicitly
+    # enabled AND the app is not running in production. Defaults to False so a
+    # production deploy can never leak credentials through a mis-set sandbox
+    # mode.
+    DEV_EXPOSE_TOKENS: bool = False
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "no-reply@lyrr.app"
+    SMTP_FROM_NAME: str = "LYRR"
+
+    # Generic HTTP SMS gateway (Twilio-compatible). SMS_API_URL receives a
+    # POST with {"to": ..., "message": ...} plus SMS_API_KEY as a Bearer token.
+    SMS_API_URL: Optional[str] = None
+    SMS_API_KEY: Optional[str] = None
+    SMS_SENDER_ID: str = "LYRR"
+
+    # Password reset links point back at the client app / web portal.
+    FRONTEND_URL: str = "http://localhost:8080"
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # This API's own publicly reachable base URL - used for server-to-server
+    # gateway callbacks (e.g. Orange Money's notif_url), which must hit this
+    # backend, not the frontend/web portal that FRONTEND_URL points at.
+    PUBLIC_API_URL: str = "http://localhost:8000"
+
     # Bypass per-book purchase checks so all published books are readable
-    # by any authenticated user. This is the current operating mode — flip
-    # to False once the purchase/licensing flow is wired end to end.
-    BYPASS_LIBRARY_PERMISSIONS: bool = True
+    # by any authenticated user. Defaults to False (FRS §14: books/audio must
+    # not be accessible without a valid purchase/subscription); flip to True
+    # only for demo/sandbox deployments that intentionally skip licensing.
+    BYPASS_LIBRARY_PERMISSIONS: bool = False
+
+    # Lifetime of the short-lived, book-scoped token that audio URLs carry in
+    # their query string (players and the downloader cannot send headers).
+    # Long enough to cover one listening session plus seeking/seeking-retries,
+    # short enough that a URL leaked into a log stops working quickly.
+    MEDIA_TOKEN_EXPIRE_MINUTES: int = 180
+
+    @property
+    def expose_dev_tokens(self) -> bool:
+        """True only when it is safe to echo OTPs / reset tokens in responses.
+
+        Requires an explicit opt-in AND a non-production environment, so a
+        production deployment can never leak credentials via a leftover sandbox
+        setting.
+        """
+        return self.DEV_EXPOSE_TOKENS and self.ENVIRONMENT != "production"
     
     @field_validator("SECRET_KEY")
     @classmethod

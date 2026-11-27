@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain HTTP only to the demo/staging backend IP, so this build can
+  talk to a server that doesn't have a TLS certificate yet. Everything else
+  still requires HTTPS. Point API_BASE_URL at a real https:// domain with a
+  trusted certificate before shipping a production build, and remove this
+  override.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.27.229.125</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

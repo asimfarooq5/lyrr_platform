@@ -10,6 +10,8 @@ class SettingsSheet extends StatelessWidget {
   final double lineHeight;
   final String theme;
   final double playbackSpeed;
+  final double voicePitch;
+  final double volume;
   final bool autoScroll;
   final Color highlightColor;
   final ReadingMode readingMode;
@@ -17,9 +19,13 @@ class SettingsSheet extends StatelessWidget {
   final Function(double) onLineHeightChanged;
   final Function(String) onThemeChanged;
   final Function(double) onPlaybackSpeedChanged;
+  final Function(double) onVoicePitchChanged;
+  final Function(double) onVolumeChanged;
   final Function(bool) onAutoScrollChanged;
   final Function(Color) onHighlightColorChanged;
   final Function(ReadingMode) onReadingModeChanged;
+  final String? voiceLabel;
+  final VoidCallback? onChooseVoice;
 
   const SettingsSheet({
     super.key,
@@ -27,6 +33,8 @@ class SettingsSheet extends StatelessWidget {
     required this.lineHeight,
     required this.theme,
     required this.playbackSpeed,
+    this.voicePitch = 1.0,
+    this.volume = 1.0,
     required this.autoScroll,
     required this.highlightColor,
     this.readingMode = ReadingMode.light,
@@ -34,9 +42,13 @@ class SettingsSheet extends StatelessWidget {
     required this.onLineHeightChanged,
     required this.onThemeChanged,
     required this.onPlaybackSpeedChanged,
+    required this.onVoicePitchChanged,
+    required this.onVolumeChanged,
     required this.onAutoScrollChanged,
     required this.onHighlightColorChanged,
     required this.onReadingModeChanged,
+    this.voiceLabel,
+    this.onChooseVoice,
   });
 
   @override
@@ -95,7 +107,13 @@ class SettingsSheet extends StatelessWidget {
                         _ReadingTab(highlightColor: highlightColor,
                             onHighlightColorChanged: onHighlightColorChanged),
                         _AudioTab(playbackSpeed: playbackSpeed,
-                            onPlaybackSpeedChanged: onPlaybackSpeedChanged),
+                            voicePitch: voicePitch,
+                            volume: volume,
+                            voiceLabel: voiceLabel,
+                            onChooseVoice: onChooseVoice,
+                            onPlaybackSpeedChanged: onPlaybackSpeedChanged,
+                            onVoicePitchChanged: onVoicePitchChanged,
+                            onVolumeChanged: onVolumeChanged),
                       ],
                     ),
                   ),
@@ -267,7 +285,7 @@ class _PageTab extends StatelessWidget {
             value: autoScroll,
             onChanged: onAutoScrollChanged,
             contentPadding: EdgeInsets.zero,
-            activeColor: AppColors.primary,
+            activeThumbColor: AppColors.primary,
           ),
         ],
       ),
@@ -455,69 +473,149 @@ class _HighlightOption extends StatelessWidget {
 
 class _AudioTab extends StatelessWidget {
   final double playbackSpeed;
+  final double voicePitch;
+  final double volume;
+  final String? voiceLabel;
   final Function(double) onPlaybackSpeedChanged;
+  final Function(double) onVoicePitchChanged;
+  final Function(double) onVolumeChanged;
+  final VoidCallback? onChooseVoice;
 
   const _AudioTab({
     required this.playbackSpeed,
+    this.voicePitch = 1.0,
+    this.volume = 1.0,
+    this.voiceLabel,
     required this.onPlaybackSpeedChanged,
+    required this.onVoicePitchChanged,
+    required this.onVolumeChanged,
+    this.onChooseVoice,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(top: 24),
-      child: Column(
+      // Scrollable because speed + tone + volume now exceed the sheet's
+      // fixed tab height on short screens.
+      child: SingleChildScrollView(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Playback Speed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
-          const SizedBox(height: 16),
-          
-          // Speed slider
+          // Speed is fixed. A picker was tried and every change restarted
+          // narration mid-sentence, which broke the word highlighting and never
+          // sounded right; one comfortable pace is better than a control that
+          // fights the sync.
+          Text('Narration Speed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 10),
           Row(
             children: [
-              const Text('🐢', style: TextStyle(fontSize: 18)),
-              Expanded(
-                child: Slider(
-                  value: playbackSpeed,
-                  min: 0.5, max: 2.0,
-                  divisions: 6,
-                  activeColor: AppColors.primary,
-                  label: '${playbackSpeed}x',
-                  onChanged: onPlaybackSpeedChanged,
-                ),
-              ),
-              const Text('🐇', style: TextStyle(fontSize: 18)),
+              Icon(Icons.speed, size: 18, color: Colors.grey[600]),
+              const SizedBox(width: 8),
+              Text('Comfortable (fixed)', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
             ],
           ),
-          
-          // Speed preset buttons
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 28),
+          Text('Voice Tone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 16),
+
+          // Pitch slider (FRS §7: voice tone adjustment)
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) {
-              final isSelected = playbackSpeed == speed;
-              return GestureDetector(
-                onTap: () => onPlaybackSpeedChanged(speed),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.primary : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8),
-                    border: isSelected ? null : Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Text(
-                    '${speed}x',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? Colors.white : Colors.black87,
+            children: [
+              const Text('🎵', style: TextStyle(fontSize: 16)),
+              Expanded(
+                child: Slider(
+                  value: voicePitch,
+                  min: 0.5, max: 2.0,
+                  divisions: 15,
+                  activeColor: AppColors.primary,
+                  label: '${voicePitch.toStringAsFixed(2)}x',
+                  onChanged: onVoicePitchChanged,
+                ),
+              ),
+              const Text('🎶', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Lower', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+              GestureDetector(
+                onTap: () => onVoicePitchChanged(1.0),
+                child: Text('Reset', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600)),
+              ),
+              Text('Higher', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+            ],
+          ),
+
+          const SizedBox(height: 28),
+          Text('Volume', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 16),
+
+          // Volume slider (FRS §7). One control governs both the audiobook
+          // and on-device narration, so the reader never has to reason about
+          // which audio source is active.
+          Row(
+            children: [
+              Icon(
+                volume == 0 ? Icons.volume_off : Icons.volume_down,
+                size: 18,
+                color: Colors.grey[600],
+              ),
+              Expanded(
+                child: Slider(
+                  value: volume.clamp(0.0, 1.0),
+                  divisions: 20,
+                  activeColor: AppColors.primary,
+                  label: '${(volume * 100).round()}%',
+                  onChanged: onVolumeChanged,
+                ),
+              ),
+              Icon(Icons.volume_up, size: 18, color: Colors.grey[600]),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text('${(volume * 100).round()}%',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+          ),
+
+          const SizedBox(height: 28),
+          Text('Voice', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 12),
+
+          // Narrator picker. Opens a list of the voices the device ships for
+          // this book's language, so the reader can change who reads to them.
+          InkWell(
+            onTap: onChooseVoice,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.record_voice_over, size: 18, color: Colors.grey[600]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      voiceLabel ?? 'System default',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13.5, color: Colors.black87),
                     ),
                   ),
-                ),
-              );
-            }).toList(),
+                  Icon(Icons.chevron_right, size: 18, color: Colors.grey[500]),
+                ],
+              ),
+            ),
           ),
         ],
+        ),
       ),
     );
   }

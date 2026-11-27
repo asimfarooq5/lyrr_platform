@@ -3,6 +3,7 @@
 /// Light and dark themes for the LYRR app
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 
 /// App colors
@@ -138,31 +139,31 @@ class AppTheme {
         color: Color(0xFFE5E7EB),
         thickness: 1,
       ),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
+      textTheme: TextTheme(
+        displayLarge: GoogleFonts.poppins(
           fontSize: 32,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryLight,
         ),
-        displayMedium: TextStyle(
+        displayMedium: GoogleFonts.poppins(
           fontSize: 24,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryLight,
         ),
-        displaySmall: TextStyle(
+        displaySmall: GoogleFonts.poppins(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryLight,
         ),
-        bodyLarge: TextStyle(
+        bodyLarge: GoogleFonts.inter(
           fontSize: 16,
           color: AppColors.textPrimaryLight,
         ),
-        bodyMedium: TextStyle(
+        bodyMedium: GoogleFonts.inter(
           fontSize: 14,
           color: AppColors.textSecondaryLight,
         ),
-        bodySmall: TextStyle(
+        bodySmall: GoogleFonts.inter(
           fontSize: 12,
           color: AppColors.textSecondaryLight,
         ),
@@ -236,31 +237,31 @@ class AppTheme {
         color: Color(0xFF2D3748),
         thickness: 1,
       ),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
+      textTheme: TextTheme(
+        displayLarge: GoogleFonts.poppins(
           fontSize: 32,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryDark,
         ),
-        displayMedium: TextStyle(
+        displayMedium: GoogleFonts.poppins(
           fontSize: 24,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryDark,
         ),
-        displaySmall: TextStyle(
+        displaySmall: GoogleFonts.poppins(
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimaryDark,
         ),
-        bodyLarge: TextStyle(
+        bodyLarge: GoogleFonts.inter(
           fontSize: 16,
           color: AppColors.textPrimaryDark,
         ),
-        bodyMedium: TextStyle(
+        bodyMedium: GoogleFonts.inter(
           fontSize: 14,
           color: AppColors.textSecondaryDark,
         ),
-        bodySmall: TextStyle(
+        bodySmall: GoogleFonts.inter(
           fontSize: 12,
           color: AppColors.textSecondaryDark,
         ),

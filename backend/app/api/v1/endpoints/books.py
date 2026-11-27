@@ -8,16 +8,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from typing import List, Optional, Dict, Any
+import json
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.api.v1.endpoints.auth import get_current_active_user
-from app.core.security import generate_drm_key
+from app.core.security import generate_drm_key, create_media_token
 from app.models.user import User
 from app.models.book import Book, Chapter, BookMedia, UserBook, BookStatus, Language
 from app.schemas.book import (
     BookResponse, BookDetailResponse, BookListResponse,
-    BookSearchRequest, LicenseResponse, BookContentResponse, BookSyncResponse
+    BookSearchRequest, LicenseResponse, BookContentResponse, BookSyncResponse,
+    AdminBookUpdate
 )
 
 router = APIRouter()
@@ -62,11 +64,48 @@ async def list_books(
     result = await db.execute(query)
     books = result.scalars().all()
     
+    # Mark which of these the reader already owns, so the store shows "In Your
+    # Library" instead of inviting them to add it again.
+    owned = set((await db.execute(
+        select(UserBook.book_id).where(UserBook.user_id == current_user.id)
+    )).scalars().all())
+    for book in books:
+        book.is_purchased = book.id in owned
+
     return {
         "items": books,
         "total": total,
         "page": page,
         "page_size": page_size
+    }
+
+
+@router.get("/authors")
+async def list_authors(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List distinct authors with their published book counts (FRS §5).
+
+    Declared BEFORE the ``/{book_id}`` route on purpose — FastAPI matches in
+    registration order, so a later declaration would have "authors" swallowed
+    as a book id.
+    """
+    result = await db.execute(
+        select(Book.author, func.count(Book.id).label("book_count"))
+        .where(
+            Book.status == BookStatus.PUBLISHED,
+            Book.author.isnot(None),
+            Book.author != "",
+        )
+        .group_by(Book.author)
+        .order_by(Book.author.asc())
+    )
+    return {
+        "items": [
+            {"name": row.author, "book_count": row.book_count}
+            for row in result.all()
+        ]
     }
 
 
@@ -87,7 +126,20 @@ async def get_book(
     
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
+
+    # Narration is per chapter for a multi-file audiobook; expose it alongside
+    # the text so the reader can play the clip that belongs to the open chapter.
+    # The URL carries a short-lived book-scoped token: players cannot send an
+    # Authorization header, and this keeps working when media auth is enforced.
+    media_token = create_media_token(book_id, current_user.id)
+    chapter_audio = {
+        m.chapter_id: (
+            f"{m.audio_url}{'&' if '?' in m.audio_url else '?'}token={media_token}"
+        )
+        for m in book.media
+        if m.chapter_id and m.audio_url
+    }
+
     return JSONResponse(content=jsonable_encoder({
         "id": book.id,
         "title": book.title,
@@ -99,20 +151,29 @@ async def get_book(
         "word_count": book.word_count,
         "status": book.status.value if hasattr(book.status, 'value') else book.status,
         "is_featured": book.is_featured,
+        "is_purchased": await db.scalar(
+            select(func.count()).select_from(UserBook).where(and_(
+                UserBook.user_id == current_user.id, UserBook.book_id == book_id
+            ))
+        ) > 0,
         "created_at": str(book.created_at) if book.created_at else None,
         "chapters": [
             {
                 "id": ch.id,
+                # Chapter text is deliberately NOT included here. This endpoint
+                # is the book's detail/cover sheet; the reader gets the words
+                # from /content. Returning the full text in both meant opening a
+                # book pulled the whole manuscript twice.
                 "title": ch.title,
                 "order_index": ch.order_index,
-                "paragraphs": ch.content or [],
-                "sync_data": ch.sync_data,
+                "audio_url": chapter_audio.get(ch.id),
             }
             for ch in book.chapters
         ],
         "media": [
             {
                 "id": m.id,
+                "chapter_id": m.chapter_id,
                 "format": m.format,
                 "quality": m.quality,
                 "duration": m.duration,
@@ -124,43 +185,59 @@ async def get_book(
     }))
 
 
+async def _has_book_access(db: AsyncSession, current_user: User, book_id: str) -> bool:
+    if settings.BYPASS_LIBRARY_PERMISSIONS or current_user.is_admin:
+        return True
+    result = await db.execute(
+        select(UserBook).where(
+            and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 @router.get("/{book_id}/content", response_model=BookContentResponse)
 async def get_book_content(
     book_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get book text content (chapters and words)"""
-    # Check if user has access (bypassable for MVP/demo)
-    if not settings.BYPASS_LIBRARY_PERMISSIONS:
-        user_book_result = await db.execute(
-            select(UserBook).where(
-                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
-            )
-        )
-        user_book = user_book_result.scalar_one_or_none()
-        
-        if not user_book and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Book not purchased")
-    
-    # Get content
+    """Get book text content (chapters and words).
+
+    Free Access / Book preview (FRS §11): a book that hasn't been purchased
+    or subscribed to returns only its first chapter, flagged as a preview,
+    instead of a hard 403 - matching a bookstore "read a sample" flow.
+    """
+    has_access = await _has_book_access(db, current_user, book_id)
+
     result = await db.execute(
         select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
     )
     chapters = result.scalars().all()
-    
-    from fastapi.encoders import jsonable_encoder
-    return jsonable_encoder({"chapters": [
-        {
-            "id": ch.id,
-            "book_id": ch.book_id,
-            "title": ch.title,
-            "order_index": ch.order_index,
-            "content": ch.content or [],
-            "sync_data": ch.sync_data,
-        }
-        for ch in chapters
-    ]})
+
+    is_preview = False
+    if not has_access:
+        book_result = await db.execute(select(Book).where(Book.id == book_id))
+        book = book_result.scalar_one_or_none()
+        if book and book.price:  # paid books gate everything but the sample
+            chapters = chapters[:1]
+            is_preview = True
+        # Free books (price is None/0) remain fully readable without a license.
+
+    return jsonable_encoder({
+        "chapters": [
+            {
+                "id": ch.id,
+                "book_id": ch.book_id,
+                "title": ch.title,
+                "order_index": ch.order_index,
+                "content": ch.content or [],
+                "sync_data": ch.sync_data,
+            }
+            for ch in chapters
+        ],
+        "is_preview": is_preview,
+    })
 
 
 @router.get("/{book_id}/sync", response_model=BookSyncResponse)
@@ -169,32 +246,30 @@ async def get_book_sync(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get book synchronization data (word timings)"""
-    # Check access (bypassable for MVP/demo)
-    if not settings.BYPASS_LIBRARY_PERMISSIONS:
-        user_book_result = await db.execute(
-            select(UserBook).where(
-                and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
-            )
-        )
-        user_book = user_book_result.scalar_one_or_none()
-        
-        if not user_book and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Book not purchased")
-    
-    # Get sync data from chapters
+    """Get book synchronization data (word timings).
+
+    Mirrors the preview gating in /content (FRS §11): unpurchased paid books
+    only get sync data for the free sample chapter.
+    """
+    has_access = await _has_book_access(db, current_user, book_id)
+
     result = await db.execute(
         select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
     )
     chapters = result.scalars().all()
-    
+
+    if not has_access:
+        book_result = await db.execute(select(Book).where(Book.id == book_id))
+        book = book_result.scalar_one_or_none()
+        if book and book.price:
+            chapters = chapters[:1]
+
     # Flatten sync data from all chapters
     all_sync = []
     for chapter in chapters:
         if chapter.sync_data:
             all_sync.extend(chapter.sync_data)
-    
-    from fastapi.encoders import jsonable_encoder
+
     return jsonable_encoder({"sync_data": all_sync})
 
 
@@ -206,16 +281,16 @@ async def get_license(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get DRM license for book"""
-    # Accept device_id from body or query
-    import json
+    # Body is optional and only carries an optional device_id.
     body = await request.body()
     device_id = None
     if body:
         try:
             data = json.loads(body)
-            device_id = data.get("device_id")
-        except:
-            pass
+            if isinstance(data, dict):
+                device_id = data.get("device_id")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
     
     # Verify user has book (bypassable for MVP/demo)
     user_book = None
@@ -247,6 +322,15 @@ async def get_license(
     if audio_url and audio_url.startswith("/"):
         base_url = str(request.base_url).rstrip("/")
         audio_url = f"{base_url}{audio_url}"
+
+    # The player and the offline downloader cannot send an Authorization
+    # header, so the audio URL carries its own short-lived, book-scoped token.
+    # Minted fresh here (rather than reusing the access token) so a URL that
+    # leaks into a log expires quickly and can only ever fetch this one book.
+    if audio_url:
+        media_token = create_media_token(book_id, current_user.id)
+        separator = "&" if "?" in audio_url else "?"
+        audio_url = f"{audio_url}{separator}token={media_token}"
     
     return {
         "license_key": license_key,
@@ -273,8 +357,16 @@ async def purchase_book(
             and_(UserBook.user_id == current_user.id, UserBook.book_id == book_id)
         )
     )
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Book already purchased")
+    # Already owned: treat as success. The mobile button reads as "Add to
+    # Library" even for a book that is already there, so failing here would
+    # leave the reader tapping a button that appears to do nothing.
+    existing = result.scalar_one_or_none()
+    if existing:
+        return JSONResponse(content=jsonable_encoder({
+            "message": "Book is already in your library",
+            "book_id": book_id,
+            "already_owned": True,
+        }))
 
     # Get book
     book_result = await db.execute(select(Book).where(Book.id == book_id))
@@ -323,10 +415,10 @@ async def download_book(
     if not user_book:
         raise HTTPException(status_code=403, detail="Book not purchased")
     
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     user_book.is_downloaded = True
-    user_book.downloaded_at = datetime.utcnow()
+    user_book.downloaded_at = datetime.now(timezone.utc)
     await db.commit()
     
     return {"message": "Download recorded", "book_id": book_id}
@@ -335,24 +427,30 @@ async def download_book(
 @router.put("/{book_id}")
 async def update_book(
     book_id: str,
-    book_data: Dict[str, Any],
+    book_data: AdminBookUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Update a book (admin use)"""
+    """Update a book (admin use).
+
+    Only the fields declared on ``AdminBookUpdate`` can be changed — the request
+    is validated against an explicit allow-list so a client can never overwrite
+    arbitrary model columns (mass assignment).
+    """
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin privileges required")
-    
+
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
-    for key, value in book_data.items():
-        if hasattr(book, key):
-            setattr(book, key, value)
-    
+
+    # exclude_unset: only apply fields the client actually sent.
+    for key, value in book_data.model_dump(exclude_unset=True).items():
+        setattr(book, key, value)
+
     await db.commit()
+    await db.refresh(book)
     return {"message": "Book updated", "book_id": book_id}
 
 

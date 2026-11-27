@@ -7,18 +7,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Form, UploadFile
 from fastapi.responses import RedirectResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 import uuid
 import os
-import csv
 import io
+import logging
 import shutil
 import zipfile
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -27,7 +30,8 @@ from app.core.security import verify_password, create_access_token, decode_token
 from app.core.csrf import generate_csrf_token, verify_csrf_token, revoke_csrf_tokens
 from app.models.user import User
 from app.models.book import Book, BookMedia, BookStatus, Chapter
-from app.models.content import Category, Author, SubscriptionPlan, UserSubscription, Payment
+from app.models.content import Category, Author, BookCategory, SubscriptionPlan, UserSubscription, Payment
+from app.models.reading_session import ReadingSession
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -50,7 +54,67 @@ def format_number(value):
     except (ValueError, TypeError):
         return str(value)
 
+
+def _find_el(parent, prefixed: str, plain: str, ns: dict):
+    """Find a child element by a namespaced name, falling back to the bare name.
+
+    NOTE: must not use `a or b` on the results. An ElementTree Element with no
+    child elements (e.g. `<dc:publisher>Foo</dc:publisher>`) is falsy, so
+    `find(prefixed) or find(plain)` silently returns None even on a hit.
+    """
+    el = parent.find(prefixed, ns)
+    if el is not None:
+        return el
+    return parent.find(plain)
+
+
+def _make_soup(html: str):
+    """Parse HTML, preferring lxml but degrading to the stdlib parser.
+
+    lxml is faster and more forgiving, but it is a compiled dependency that
+    may be missing on some platforms — an EPUB import must never hard-fail
+    just because the optional parser is unavailable.
+    """
+    try:
+        return BeautifulSoup(html, "lxml")
+    except Exception:
+        return BeautifulSoup(html, "html.parser")
+
+
+def _parse_price(value: str) -> Optional[float]:
+    """Parse a price form field. Blank -> None (free); invalid -> None (free).
+
+    Never raises: a typo in the admin form must not 500 the request.
+    """
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        price = float(text)
+    except (ValueError, TypeError):
+        return None
+    return price if price >= 0 else None
+
 templates.env.filters["format_number"] = format_number
+
+
+def cover_url(cover_path: Optional[str], updated_at=None) -> Optional[str]:
+    """Append a cache-busting version to a cover URL.
+
+    Cover files keep the same path when replaced, so without this the browser
+    (and the Flutter image cache) would keep showing the old artwork after an
+    admin uploads a new one.
+    """
+    if not cover_path:
+        return cover_path
+    version = int(updated_at.timestamp()) if updated_at else 1
+    separator = "&" if "?" in cover_path else "?"
+    return f"{cover_path}{separator}v={version}"
+
+
+# Expose helpers to every template (upload size limits, cover cache-busting).
+templates.env.globals["settings"] = settings
+templates.env.globals["cover_url"] = cover_url
 
 
 async def _get_admin(request: Request, db: AsyncSession) -> Optional[User]:
@@ -159,15 +223,84 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     stats = {
         "users": (await db.scalar(select(func.count(User.id)))) or 0,
         "books": (await db.scalar(select(func.count(Book.id)))) or 0,
-        "subscriptions": (await db.scalar(select(func.count(UserSubscription.id)))) or 0,
+        "published": (await db.scalar(
+            select(func.count(Book.id)).where(Book.status == BookStatus.PUBLISHED)
+        )) or 0,
+        "subscriptions": (await db.scalar(
+            select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+        )) or 0,
+        "payments_count": (await db.scalar(
+            select(func.count(Payment.id)).where(Payment.status == "completed")
+        )) or 0,
     }
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    stats["revenue"] = int(sum(p.amount for p in payments))
-    stats["revenue_month"] = int(sum(
-        p.amount for p in payments
-        if p.created_at and p.created_at > datetime.now(timezone.utc) - timedelta(days=30)
-    ))
-    ctx = {"request": request, "page": "dashboard", "stats": stats}
+
+    # Revenue totals (kept as SQL aggregates so they scale past a demo dataset).
+    stats["revenue"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed")
+    ) or 0)
+    since_30 = datetime.now(timezone.utc) - timedelta(days=30)
+    stats["revenue_month"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+    ) or 0)
+    stats["sales_month"] = int(await db.scalar(
+        select(func.count(Payment.id))
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+    ) or 0)
+
+    # 14-day revenue trend for the sparkline chart.
+    trend_rows = (await db.execute(
+        select(
+            func.date(Payment.completed_at).label("day"),
+            func.coalesce(func.sum(Payment.amount), 0).label("total"),
+        )
+        .where(Payment.status == "completed", Payment.completed_at >= since_30)
+        .group_by(func.date(Payment.completed_at))
+        .order_by(func.date(Payment.completed_at))
+    )).all()
+    by_day = {str(r.day): float(r.total) for r in trend_rows}
+    trend = []
+    for offset in range(13, -1, -1):
+        day = (datetime.now(timezone.utc) - timedelta(days=offset)).date()
+        trend.append({"day": day.strftime("%d %b"), "value": by_day.get(str(day), 0.0)})
+    stats["trend"] = trend
+    stats["trend_max"] = max((p["value"] for p in trend), default=0.0) or 1.0
+
+    # Recent payments + best sellers for the activity panels.
+    recent = (await db.execute(
+        select(Payment, User.email)
+        .join(User, User.id == Payment.user_id, isouter=True)
+        .order_by(Payment.created_at.desc())
+        .limit(6)
+    )).all()
+    recent_payments = [
+        {
+            "email": email or "—",
+            "amount": p.amount,
+            "currency": p.currency,
+            "method": p.method,
+            "status": p.status,
+            "description": p.description,
+            "created_at": p.created_at,
+        }
+        for p, email in recent
+    ]
+
+    top_books = (await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+        .where(Book.status == BookStatus.PUBLISHED)
+        .order_by(Book.sales_count.desc(), Book.created_at.desc())
+        .limit(5)
+    )).all()
+
+    ctx = {
+        "request": request,
+        "page": "dashboard",
+        "stats": stats,
+        "recent_payments": recent_payments,
+        "top_books": top_books,
+    }
     return templates.TemplateResponse(request, "admin/dashboard.html", await _inject_csrf(ctx, request))
 
 # ===== BOOKS =====
@@ -185,32 +318,58 @@ async def books_page(request: Request, db: AsyncSession = Depends(get_db)):
 @router.post("/books")
 async def create_book(request: Request, title: str = Form(...), author: str = Form(""),
                       description: str = Form(""), language: str = Form("en"),
+                      price: str = Form(""),
                       db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
     book = Book(id=str(uuid.uuid4()), title=title, author=author or "Unknown",
-                description=description, language=language, status=BookStatus.PUBLISHED)
+                description=description, language=language,
+                price=_parse_price(price),
+                status=BookStatus.DRAFT)
     db.add(book)
     await db.commit()
-    return RedirectResponse(url="/admin/books", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book.id}?msg=created", status_code=302)
 
 @router.get("/books/{book_id}")
 async def edit_book_page(book_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    result = await db.execute(select(Book).options(selectinload(Book.media)).where(Book.id == book_id))
+    result = await db.execute(
+        select(Book)
+        .options(selectinload(Book.media), selectinload(Book.chapters))
+        .where(Book.id == book_id)
+    )
     book = result.scalar_one_or_none()
     if not book:
         return RedirectResponse(url="/admin/books")
-    ctx = {"request": request, "page": "books", "book": book}
+    categories = (await db.execute(select(Category).order_by(Category.name))).scalars().all()
+    current_category = (await db.execute(
+        select(BookCategory.category_id).where(BookCategory.book_id == book_id)
+    )).scalar_one_or_none()
+    chapter_count = await db.scalar(
+        select(func.count(Chapter.id)).where(Chapter.book_id == book_id)
+    ) or 0
+    # Which chapters already have narration — the upload form offers the rest.
+    audio_chapter_ids = set((await db.execute(
+        select(BookMedia.chapter_id).where(
+            BookMedia.book_id == book_id, BookMedia.chapter_id.isnot(None)
+        )
+    )).scalars().all())
+    ctx = {"request": request, "page": "books", "book": book,
+           "categories": categories, "current_category_id": current_category,
+           "chapter_count": chapter_count, "audio_chapter_ids": audio_chapter_ids}
     return templates.TemplateResponse(request, "admin/book_detail.html", await _inject_csrf(ctx, request))
 
 @router.post("/books/{book_id}")
 async def update_book(book_id: str, request: Request, title: str = Form(...),
                       author: str = Form(""), description: str = Form(""),
                       book_type: str = Form("fiction"),
+                      price: str = Form(""),
+                      lecture_price: str = Form(""),
+                      category_id: str = Form(""),
+                      status: str = Form("draft"),
                       db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
@@ -223,8 +382,23 @@ async def update_book(book_id: str, request: Request, title: str = Form(...),
     book.author = author or book.author
     book.description = description
     book.book_type = book_type
+    book.price = _parse_price(price)
+    # What one playback of the narration costs; blank means not sold as audio.
+    book.lecture_price = _parse_price(lecture_price)
+    if status in (BookStatus.DRAFT.value, BookStatus.PUBLISHED.value, BookStatus.ARCHIVED.value):
+        book.status = BookStatus(status)
+        if book.status == BookStatus.PUBLISHED and not book.published_at:
+            book.published_at = datetime.now(timezone.utc)
+
+    # Pricing & Publishing (KDP-style): one category per book, replace on save.
+    await db.execute(
+        BookCategory.__table__.delete().where(BookCategory.book_id == book_id)
+    )
+    if category_id.strip():
+        db.add(BookCategory(book_id=book_id, category_id=category_id))
+
     await db.commit()
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=updated", status_code=302)
 
 @router.post("/books/{book_id}/cover")
 async def upload_cover(book_id: str, request: Request, file: UploadFile = File(...),
@@ -245,10 +419,12 @@ async def upload_cover(book_id: str, request: Request, file: UploadFile = File(.
         return RedirectResponse(url="/admin/books")
     book.cover_url = f"/media/covers/{filename}"
     await db.commit()
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=cover_updated", status_code=302)
 
 @router.post("/books/{book_id}/audio")
 async def upload_audio(book_id: str, request: Request, file: UploadFile = File(...),
+                       chapter_id: str = Form(""),
+                       language: str = Form("en"),
                        db: AsyncSession = Depends(get_db), _: bool = Depends(_verify_csrf)):
     admin = await _get_admin(request, db)
     if not admin:
@@ -260,11 +436,43 @@ async def upload_audio(book_id: str, request: Request, file: UploadFile = File(.
     with open(path, "wb") as f:
         f.write(content)
 
+    # Read the clip's length up front: it drives both the chapter it belongs to
+    # and the word timings generated from it.
+    from app.services import alignment
+
+    duration = alignment.mp3_duration_seconds(path)
+
+    # Attach the clip to the chapter the operator chose. Left on "auto", it
+    # claims the first chapter without narration — convenient when the clips are
+    # uploaded in reading order, though it depends on the book's chapters lining
+    # up with the recording's files, so the explicit choice is the reliable one.
+    chapters = (await db.execute(
+        select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
+    )).scalars().all()
+    already = set((await db.execute(
+        select(BookMedia.chapter_id).where(
+            BookMedia.book_id == book_id, BookMedia.chapter_id.isnot(None)
+        )
+    )).scalars().all())
+
+    target = None
+    if chapter_id:
+        target = next((c for c in chapters if c.id == chapter_id), None)
+    elif chapters:
+        target = next((c for c in chapters if c.id not in already), None)
+
+    if target and duration:
+        # Timings for this chapter only, from this clip's own length.
+        alignment.build_sync_data([target], float(duration))
+
     media = BookMedia(
         id=str(uuid.uuid4()), book_id=book_id,
+        chapter_id=target.id if target else None,
+        language=(language or "en")[:16],
         audio_url=f"/media/audio/{filename}",
         format=os.path.splitext(safe_name)[1].lstrip("."),
         size_bytes=len(content),
+        duration=int(duration) if duration else None,
         is_encrypted=False,
     )
     db.add(media)
@@ -299,7 +507,7 @@ async def delete_book_route(book_id: str, request: Request,
     if book:
         await db.delete(book)
         await db.commit()
-    return RedirectResponse(url="/admin/books", status_code=302)
+    return RedirectResponse(url="/admin/books?msg=deleted", status_code=302)
 
 
 @router.post("/books/{book_id}/upload-epub")
@@ -374,7 +582,7 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
         opf_root = opf_tree.getroot()
         pkg_ns = {"p": "http://www.idpf.org/2007/opf"}
 
-        spine = opf_root.find(".//p:spine", pkg_ns) or opf_root.find("spine")
+        spine = _find_el(opf_root, ".//p:spine", "spine", pkg_ns)
         if spine is None:
             return RedirectResponse(url=f"/admin/books/{book_id}?error=no_spine", status_code=302)
 
@@ -385,15 +593,18 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
             manifest[item_id] = item_href
 
         # Update book metadata from OPF
-        metadata = opf_root.find(".//p:metadata", pkg_ns) or opf_root.find("metadata")
+        metadata = _find_el(opf_root, ".//p:metadata", "metadata", pkg_ns)
         if metadata is not None:
             dc_ns = {"dc": "http://purl.org/dc/elements/1.1/"}
-            title_el = metadata.find("dc:title", dc_ns) or metadata.find("title")
+            title_el = _find_el(metadata, "dc:title", "title", dc_ns)
             if title_el is not None and title_el.text:
                 book.title = title_el.text[:255]
-            author_el = metadata.find("dc:creator", dc_ns) or metadata.find("creator")
+            author_el = _find_el(metadata, "dc:creator", "creator", dc_ns)
             if author_el is not None and author_el.text:
                 book.author = author_el.text[:255]
+            publisher_el = _find_el(metadata, "dc:publisher", "publisher", dc_ns)
+            if publisher_el is not None and publisher_el.text:
+                book.publisher = publisher_el.text[:255]
 
         # Extract cover image if available
         cover_href = None
@@ -442,7 +653,7 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
             with open(content_path, "r", encoding="utf-8", errors="replace") as fh:
                 html_content = fh.read(5 * 1024 * 1024)  # 5 MB cap per chapter
 
-            soup = BeautifulSoup(html_content, "lxml")
+            soup = _make_soup(html_content)
             paragraphs = []
             for tag in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"]):
                 text = tag.get_text(strip=True)
@@ -487,25 +698,63 @@ async def upload_epub(book_id: str, request: Request, file: UploadFile = File(..
         await db.commit()
 
     except Exception as e:
-        print(f"EPUB parse error: {e}")
+        # Surface the failure to the admin instead of pretending it worked.
+        logger.exception("EPUB import failed for book %s", book_id)
+        await db.rollback()
+        return RedirectResponse(
+            url=f"/admin/books/{book_id}?error=epub_import_failed",
+            status_code=302,
+        )
     finally:
         shutil.rmtree(epub_dir, ignore_errors=True)
 
-    return RedirectResponse(url=f"/admin/books/{book_id}", status_code=302)
+    return RedirectResponse(url=f"/admin/books/{book_id}?msg=imported", status_code=302)
 
 # ===== USERS =====
 
 @router.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request, db: AsyncSession = Depends(get_db)):
+async def users_page(request: Request, search: str = "", page_no: int = 1,
+                     db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    result = await db.execute(select(User).order_by(User.created_at.desc()).limit(100))
-    users = result.scalars().all()
-    ctx = {"request": request, "page": "users",
-        "users": [{"id": u.id, "email": u.email, "is_active": u.is_active,
-                    "is_admin": u.is_admin, "is_verified": u.is_verified,
-                    "created_at": str(u.created_at)[:10] if u.created_at else ""} for u in users]}
+    PAGE_SIZE = 25
+    page = max(1, page_no or 1)
+    base = select(User)
+    if search and search.strip():
+        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        base = base.where(or_(
+            User.email.ilike(f"%{escaped}%", escape="\\"),
+            User.phone.ilike(f"%{escaped}%", escape="\\"),
+        ))
+    total = await db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    users = (await db.execute(
+        base.order_by(User.created_at.desc())
+        .offset((page - 1) * PAGE_SIZE)
+        .limit(PAGE_SIZE)
+    )).scalars().all()
+    pages = max(1, -(-total // PAGE_SIZE))
+    ctx = {
+        "request": request,
+        "page": "users",
+        "users": [
+            {
+                "id": u.id,
+                "email": u.email,
+                "phone": u.phone,
+                "is_active": u.is_active,
+                "is_admin": u.is_admin,
+                "is_verified": u.is_verified,
+                "phone_verified": u.phone_verified,
+                "created_at": u.created_at,
+            }
+            for u in users
+        ],
+        "total": total,
+        "page_no": page,
+        "pages": pages,
+        "search": search or "",
+    }
     return templates.TemplateResponse(request, "admin/users.html", await _inject_csrf(ctx, request))
 
 @router.post("/users/create")
@@ -558,7 +807,24 @@ async def subscriptions_page(request: Request, db: AsyncSession = Depends(get_db
     if not admin:
         return RedirectResponse(url="/admin/login")
     plans = (await db.execute(select(SubscriptionPlan).order_by(SubscriptionPlan.price))).scalars().all()
-    user_subs = (await db.execute(select(UserSubscription).order_by(UserSubscription.created_at.desc()).limit(50))).scalars().all()
+    # Join user + plan so the table shows emails and plan names, not raw UUIDs.
+    sub_rows = (await db.execute(
+        select(UserSubscription, User.email, SubscriptionPlan.name)
+        .join(User, User.id == UserSubscription.user_id)
+        .join(SubscriptionPlan, SubscriptionPlan.id == UserSubscription.plan_id, isouter=True)
+        .order_by(UserSubscription.created_at.desc())
+        .limit(50)
+    )).all()
+    user_subs = [
+        {
+            "email": email,
+            "plan_name": plan_name or "—",
+            "status": sub.status,
+            "started_at": sub.started_at,
+            "expires_at": sub.expires_at,
+        }
+        for sub, email, plan_name in sub_rows
+    ]
     ctx = {"request": request, "page": "subscriptions", "plans": plans, "user_subs": user_subs}
     return templates.TemplateResponse(request, "admin/subscriptions.html", await _inject_csrf(ctx, request))
 
@@ -595,8 +861,23 @@ async def categories_page(request: Request, db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    cats = (await db.execute(select(Category))).scalars().all()
-    ctx = {"request": request, "page": "categories", "categories": cats}
+    cats = (await db.execute(select(Category).order_by(Category.name))).scalars().all()
+    # Count books per category so the list shows real usage.
+    counts = dict((await db.execute(
+        select(BookCategory.category_id, func.count(BookCategory.book_id))
+        .group_by(BookCategory.category_id)
+    )).all())
+    categories = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "slug": c.slug,
+            "description": c.description,
+            "book_count": counts.get(c.id, 0),
+        }
+        for c in cats
+    ]
+    ctx = {"request": request, "page": "categories", "categories": categories}
     return templates.TemplateResponse(request, "admin/categories.html", await _inject_csrf(ctx, request))
 
 @router.post("/categories")
@@ -605,10 +886,27 @@ async def create_category(request: Request, name: str = Form(...), description: 
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    cat = Category(id=str(uuid.uuid4()), name=name, slug=name.lower().replace(" ", "-"))
+    name = name.strip()
+    slug = "-".join(name.lower().split())
+    # Friendly duplicate handling — name and slug are both unique.
+    existing = (await db.execute(
+        select(Category).where(or_(Category.name == name, Category.slug == slug))
+    )).scalar_one_or_none()
+    if existing:
+        return RedirectResponse(
+            url="/admin/categories?error=duplicate", status_code=302
+        )
+
+    cat = Category(id=str(uuid.uuid4()), name=name, slug=slug,
+                   description=description or None)
     db.add(cat)
-    await db.commit()
-    return RedirectResponse(url="/admin/categories", status_code=302)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost a concurrent race on the unique name/slug.
+        await db.rollback()
+        return RedirectResponse(url="/admin/categories?error=duplicate", status_code=302)
+    return RedirectResponse(url="/admin/categories?msg=category_created", status_code=302)
 
 @router.post("/categories/{cat_id}/delete")
 async def delete_category(cat_id: str, request: Request,
@@ -621,7 +919,7 @@ async def delete_category(cat_id: str, request: Request,
     if cat:
         await db.delete(cat)
         await db.commit()
-    return RedirectResponse(url="/admin/categories", status_code=302)
+    return RedirectResponse(url="/admin/categories?msg=category_deleted", status_code=302)
 
 # ===== ANALYTICS =====
 
@@ -630,35 +928,149 @@ async def analytics_page(request: Request, db: AsyncSession = Depends(get_db)):
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
+    days = 30
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
     stats = {
         "users": (await db.scalar(select(func.count(User.id)))) or 0,
+        "new_users": (await db.scalar(
+            select(func.count(User.id)).where(User.created_at >= since)
+        )) or 0,
         "books": (await db.scalar(select(func.count(Book.id)))) or 0,
+        "subscriptions": (await db.scalar(
+            select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+        )) or 0,
     }
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    stats["revenue"] = int(sum(p.amount for p in payments))
-    stats["payments"] = len(payments)
-    books = (await db.execute(select(Book).order_by(Book.created_at.desc()).limit(5))).scalars().all()
-    stats["popular"] = [{"title": b.title, "author": b.author} for b in books]
-    ctx = {"request": request, "page": "analytics", "stats": stats}
+
+    # Revenue
+    stats["revenue"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed")
+    ) or 0)
+    stats["revenue_month"] = int(await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.status == "completed", Payment.completed_at >= since)
+    ) or 0)
+    stats["payments"] = await db.scalar(
+        select(func.count(Payment.id)).where(Payment.status == "completed")
+    ) or 0
+    stats["payments_month"] = await db.scalar(
+        select(func.count(Payment.id))
+        .where(Payment.status == "completed", Payment.completed_at >= since)
+    ) or 0
+    stats["avg_order"] = int(stats["revenue"] / stats["payments"]) if stats["payments"] else 0
+
+    # Revenue split by payment method
+    stats["by_method"] = [
+        {"method": m or "unknown", "total": float(t or 0), "count": int(c or 0)}
+        for m, t, c in (await db.execute(
+            select(Payment.method, func.sum(Payment.amount), func.count(Payment.id))
+            .where(Payment.status == "completed", Payment.completed_at >= since)
+            .group_by(Payment.method)
+            .order_by(func.sum(Payment.amount).desc())
+        )).all()
+    ]
+
+    # Reading engagement
+    stats["reading_sessions"] = await db.scalar(
+        select(func.count(ReadingSession.id)).where(ReadingSession.date >= since.date())
+    ) or 0
+    stats["reading_minutes"] = int((await db.scalar(
+        select(func.coalesce(func.sum(ReadingSession.duration_seconds), 0))
+        .where(ReadingSession.date >= since.date())
+    ) or 0) / 60)
+
+    # Most-read books (by session volume), falling back to newest when empty.
+    popular = (await db.execute(
+        select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at,
+               func.count(ReadingSession.id).label("sessions"))
+        .join(ReadingSession, ReadingSession.book_id == Book.id)
+        .group_by(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+        .order_by(func.count(ReadingSession.id).desc())
+        .limit(8)
+    )).all()
+    if not popular:
+        newest = (await db.execute(
+            select(Book.id, Book.title, Book.author, Book.cover_url, Book.updated_at)
+            .order_by(Book.created_at.desc())
+            .limit(8)
+        )).all()
+        stats["popular"] = [
+            {"id": r.id, "title": r.title, "author": r.author,
+             "cover_url": r.cover_url, "updated_at": r.updated_at, "sessions": 0}
+            for r in newest
+        ]
+    else:
+        stats["popular"] = [
+            {"id": r.id, "title": r.title, "author": r.author,
+             "cover_url": r.cover_url, "updated_at": r.updated_at, "sessions": r.sessions}
+            for r in popular
+        ]
+
+    ctx = {"request": request, "page": "analytics", "stats": stats, "days": days}
     return templates.TemplateResponse(request, "admin/analytics.html", await _inject_csrf(ctx, request))
 
 @router.get("/analytics/export")
 async def export_analytics(request: Request, db: AsyncSession = Depends(get_db)):
+    """Export analytics to an Excel workbook (.xlsx) - FRS §13."""
     admin = await _get_admin(request, db)
     if not admin:
         return RedirectResponse(url="/admin/login")
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Metric", "Value"])
-    writer.writerow(["Total Users", (await db.scalar(select(func.count(User.id)))) or 0])
-    writer.writerow(["Total Books", (await db.scalar(select(func.count(Book.id)))) or 0])
-    writer.writerow(["Active Subscriptions", (await db.scalar(select(func.count(UserSubscription.id)).where(UserSubscription.status == "active"))) or 0])
-    payments = (await db.execute(select(Payment).where(Payment.status == "completed"))).scalars().all()
-    writer.writerow(["Total Revenue", sum(p.amount for p in payments)])
-    writer.writerow(["", ""])
-    writer.writerow(["Recent Payments"])
-    writer.writerow(["ID", "Amount", "Method", "Status", "Date"])
-    for p in payments[-20:]:
-        writer.writerow([p.id, p.amount, p.method, p.status, str(p.created_at)[:19]])
-    return Response(content=output.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=lyrr_analytics.csv"})
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    total_users = (await db.scalar(select(func.count(User.id)))) or 0
+    total_books = (await db.scalar(select(func.count(Book.id)))) or 0
+    active_subscriptions = (await db.scalar(
+        select(func.count(UserSubscription.id)).where(UserSubscription.status == "active")
+    )) or 0
+    payments = (await db.execute(
+        select(Payment).where(Payment.status == "completed").order_by(Payment.created_at)
+    )).scalars().all()
+    total_revenue = sum(p.amount for p in payments)
+    books = (await db.execute(select(Book).order_by(Book.created_at.desc()).limit(10))).scalars().all()
+
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["LYRR Analytics", ""])
+    ws.append(["Generated", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")])
+    ws.append([])
+    ws.append(["Metric", "Value"])
+    ws.append(["Total Users", total_users])
+    ws.append(["Total Books", total_books])
+    ws.append(["Active Subscriptions", active_subscriptions])
+    ws.append(["Total Revenue", total_revenue])
+    ws.append(["Completed Payments", len(payments)])
+
+    ws2 = wb.create_sheet("Payments")
+    ws2.append(["ID", "Amount", "Currency", "Method", "Status", "Date"])
+    for p in payments:
+        ws2.append([p.id, p.amount, p.currency, p.method, p.status, str(p.created_at)[:19]])
+
+    ws3 = wb.create_sheet("Recent Books")
+    ws3.append(["Title", "Author", "Status"])
+    for b in books:
+        ws3.append([b.title, b.author, b.status.value if hasattr(b.status, "value") else b.status])
+
+    header_font = Font(bold=True)
+    fill = PatternFill(start_color="DDEEFF", end_color="DDEEFF", fill_type="solid")
+    for sheet in wb.worksheets:
+        for cell in sheet[1]:
+            cell.font = header_font
+            cell.fill = fill
+        sheet.column_dimensions[get_column_letter(1)].width = 28
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"lyrr_analytics_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
